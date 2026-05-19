@@ -38,6 +38,7 @@ describe('skills-lint', () => {
       });
 
       test('frontmatter has name + description', () => {
+        if (!skill) return; // SKILL.md missing — covered by 'SKILL.md exists' test above
         const { data } = matter(skill.raw);
         expect(data.name).toBe(name);
         expect(typeof data.description).toBe('string');
@@ -45,8 +46,9 @@ describe('skills-lint', () => {
       });
 
       test('cross-references resolve to actual skill dirs', () => {
+        if (!skill) return; // SKILL.md missing — covered by 'SKILL.md exists' test above
         const body = matter(skill.raw).content;
-        const refs = [...body.matchAll(/\/vault\.[a-z][a-z0-9.-]*/g)].map(m => m[0].slice(1));
+        const refs = [...body.matchAll(/\/vault\.[a-z][a-z0-9-]*(?=[^a-z0-9-]|$)/g)].map(m => m[0].slice(1));
         for (const ref of refs) {
           const refName = ref.split(/[\s<`]/)[0];
           if (refName === name) continue;

@@ -55,6 +55,8 @@ If `path_regex` is missing or has no literal prefix, ask the user via `AskUserQu
 
 For each field in `required_fields`, pick a value:
 
+Evaluate rows top-to-bottom; the first matching row wins.
+
 | Field shape | Placeholder |
 |---|---|
 | `template` (always required) | `templates/<type>-template.md` |
@@ -66,7 +68,7 @@ For each field in `required_fields`, pick a value:
 | `title` | slug humanized (replace hyphens with spaces, title-case) |
 | anything else | `'@TODO'` |
 
-Order keys priority-first: `template`, `title`, `status`, `phase`, `owner`, `created`, `updated`, then the rest alphabetically. Match the canonical formatter's expected order.
+Order keys priority-first: `id`, `title`, `template`, `status`, `phase`, `owner`, `created`, `updated`, then the rest alphabetically. Match the canonical formatter's expected order (`PRIORITY_KEYS` in `lib/canonical-formatter.js`).
 
 ## Step 4 — write the file
 
