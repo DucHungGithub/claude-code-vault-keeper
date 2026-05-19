@@ -184,14 +184,17 @@ async function validateDocument(filepath, options = {}) {
   // their results — they don't depend on template rules. The missing-template
   // case is already covered by validateTemplateField, so we only synthesize an
   // error here when the template field IS set but loading still failed.
-  const rules = await loadTemplateRules(fm.template, options.projectRoot);
+  const loaded = await loadTemplateRules(fm.template, options.projectRoot);
+  const rules = loaded?.rules ?? null;
   if (!rules) {
     if (fm.template) {
       allIssues.push({
         level: 'error',
         field: 'template',
-        message: `Cannot load validation_rules from template '${fm.template}' — file not found, malformed YAML, or missing validation_rules block`,
-        fix: `Verify '${fm.template}' exists (relative to repo root) and contains a 'validation_rules:' block in its frontmatter. See templates/README.md for the template registry.`,
+        // Use specific error from loadTemplateRules (D1: tells user exactly
+        // whether file is missing, has bad YAML, or lacks validation_rules).
+        message: loaded?.error ?? `Cannot load validation_rules from template '${fm.template}'`,
+        fix: `Verify '${fm.template}' exists and contains a 'validation_rules:' block. See templates/README.md.`,
       });
     }
   } else {

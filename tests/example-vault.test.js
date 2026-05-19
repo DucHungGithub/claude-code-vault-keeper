@@ -196,8 +196,15 @@ describe('examples/example/ — fixture-cum-documentation', () => {
       match: (i) => /Template-only field/.test(i.message),
     },
     {
+      // D1: loadTemplateRules now returns specific errors per failure mode.
+      // Match any of: "not found", "YAML syntax error", "has no 'validation_rules'"
       name: 'unresolvable template',
-      match: (i) => /Cannot load validation_rules/.test(i.message),
+      match: (i) => i.field === 'template' && (
+        /not found/i.test(i.message) ||
+        /yaml syntax error/i.test(i.message) ||
+        /validation_rules/.test(i.message) ||
+        /Cannot load validation_rules/.test(i.message) // backward-compat
+      ),
     },
     {
       name: 'broken frontmatter relationship link',

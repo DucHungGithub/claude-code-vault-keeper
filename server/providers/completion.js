@@ -316,7 +316,9 @@ async function getDocTemplateRules(docText, projectRoot) {
   const templatePath = extractTemplatePath(docText);
   if (!templatePath) return null;
   try {
-    return await loadTemplateRules(templatePath, projectRoot);
+    // loadTemplateRules returns { rules, error } — unwrap so callers get rules or null
+    const { rules } = await loadTemplateRules(templatePath, projectRoot);
+    return rules;
   } catch {
     return null;
   }

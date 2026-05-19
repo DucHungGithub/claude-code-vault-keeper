@@ -394,7 +394,7 @@ updated: "2026-01-01T00:00:00+07:00"`),
     expect(result.rulesSource).toBeNull();
     expect(result.errors.some((e) =>
       e.field === "template"
-      && /Cannot load validation_rules.*missing-template\.md/.test(e.message),
+      && /missing-template\.md/.test(e.message),
     )).toBe(true);
   });
 
@@ -417,7 +417,7 @@ updated: "2026-01-01"`),
     expect(result.rulesSource).toBeNull();
     expect(result.errors.some((e) =>
       e.field === "template"
-      && /no-rules\.md.*missing validation_rules/.test(e.message),
+      && /no-rules\.md/.test(e.message),
     )).toBe(true);
   });
 

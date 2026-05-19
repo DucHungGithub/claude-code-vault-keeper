@@ -1,8 +1,9 @@
 /**
  * Tests for the template-rules loader.
  *
- * `loadTemplateRules` reads a markdown template, parses its YAML frontmatter,
- * and returns the normalized validation_rules block (or null on any failure).
+ * `loadTemplateRules` returns `{ rules, error }`:
+ *   - success: { rules: NormalizedRules, error: null }
+ *   - failure: { rules: null, error: "<specific reason>" }
  * `normalizeRules` is pure and runs on inline objects.
  *
  * Each test uses an isolated temp dir; no real templates are read.
@@ -38,35 +39,49 @@ function writeFile(rel, content) {
 // loadTemplateRules — null cases
 // ────────────────────────────────────────────────────────────────────────────
 
-describe("loadTemplateRules — null cases", () => {
-  test("templatePath is null → null", async () => {
-    expect(await loadTemplateRules(null, SANDBOX)).toBeNull();
+describe("loadTemplateRules — error cases", () => {
+  test("templatePath is null → { rules: null, error: string }", async () => {
+    const { rules, error } = await loadTemplateRules(null, SANDBOX);
+    expect(rules).toBeNull();
+    expect(typeof error).toBe("string");
+    expect(error.length).toBeGreaterThan(0);
   });
 
-  test("templatePath is empty string → null", async () => {
-    expect(await loadTemplateRules("", SANDBOX)).toBeNull();
+  test("templatePath is empty string → { rules: null, error: string }", async () => {
+    const { rules, error } = await loadTemplateRules("", SANDBOX);
+    expect(rules).toBeNull();
+    expect(typeof error).toBe("string");
   });
 
-  test("file does not exist → null (not throw)", async () => {
-    expect(await loadTemplateRules("templates/nope.md", SANDBOX)).toBeNull();
+  test("file does not exist → { rules: null, error } (not throw)", async () => {
+    const { rules, error } = await loadTemplateRules("templates/nope.md", SANDBOX);
+    expect(rules).toBeNull();
+    expect(error).toMatch(/not found/i);
+    expect(error).toContain("templates/nope.md");
   });
 
-  test("file exists but no frontmatter → null", async () => {
+  test("file exists but no frontmatter → { rules: null, error }", async () => {
     writeFile("templates/foo.md", "# heading only\n\nbody\n");
-    expect(await loadTemplateRules("templates/foo.md", SANDBOX)).toBeNull();
+    const { rules, error } = await loadTemplateRules("templates/foo.md", SANDBOX);
+    expect(rules).toBeNull();
+    expect(typeof error).toBe("string");
   });
 
-  test("frontmatter exists but no validation_rules block → null", async () => {
+  test("frontmatter exists but no validation_rules block → { rules: null, error }", async () => {
     writeFile(
       "templates/foo.md",
       "---\ntemplate_id: foo\nstatus: x\n---\nbody\n",
     );
-    expect(await loadTemplateRules("templates/foo.md", SANDBOX)).toBeNull();
+    const { rules, error } = await loadTemplateRules("templates/foo.md", SANDBOX);
+    expect(rules).toBeNull();
+    expect(error).toMatch(/validation_rules/i);
   });
 
-  test("malformed YAML in frontmatter → null (not throw)", async () => {
+  test("malformed YAML in frontmatter → { rules: null, error } (not throw)", async () => {
     writeFile("templates/bad.md", "---\nbroken: [unclosed\n---\nbody\n");
-    expect(await loadTemplateRules("templates/bad.md", SANDBOX)).toBeNull();
+    const { rules, error } = await loadTemplateRules("templates/bad.md", SANDBOX);
+    expect(rules).toBeNull();
+    expect(typeof error).toBe("string");
   });
 });
 
@@ -85,7 +100,8 @@ validation_rules:
 body
 `,
     );
-    const rules = await loadTemplateRules("templates/r.md", SANDBOX);
+    const { rules, error } = await loadTemplateRules("templates/r.md", SANDBOX);
+    expect(error).toBeNull();
     expect(rules.required_fields).toEqual(["template", "status", "owner"]);
   });
 
@@ -105,7 +121,7 @@ validation_rules:
 ---
 `,
     );
-    const rules = await loadTemplateRules("templates/f.md", SANDBOX);
+    const { rules } = await loadTemplateRules("templates/f.md", SANDBOX);
     expect(rules.field_rules).toHaveLength(3);
     expect(rules.field_rules[0]).toMatchObject({
       field: "status",
@@ -135,7 +151,7 @@ validation_rules:
 ---
 `,
     );
-    const rules = await loadTemplateRules("templates/c.md", SANDBOX);
+    const { rules } = await loadTemplateRules("templates/c.md", SANDBOX);
     expect(rules.conditional_required_fields).toHaveLength(2);
     expect(rules.conditional_required_fields[0]).toMatchObject({
       condition: "type in ['x']",
@@ -161,7 +177,7 @@ validation_rules:
 ---
 `,
     );
-    const rules = await loadTemplateRules("templates/s.md", SANDBOX);
+    const { rules } = await loadTemplateRules("templates/s.md", SANDBOX);
     expect(rules.state_machine).toEqual({
       draft: ["review", "cancelled"],
       review: ["approved"],
@@ -178,7 +194,7 @@ validation_rules:
 ---
 `,
     );
-    const rules = await loadTemplateRules("templates/o.md", SANDBOX);
+    const { rules } = await loadTemplateRules("templates/o.md", SANDBOX);
     expect(rules.optional_fields).toEqual(["tags", "references"]);
   });
 
@@ -191,7 +207,7 @@ validation_rules:
 ---
 `,
     );
-    const rules = await loadTemplateRules("templates/x.md", SANDBOX);
+    const { rules } = await loadTemplateRules("templates/x.md", SANDBOX);
     expect(rules.__source).toBe("templates/x.md");
   });
 
@@ -204,7 +220,7 @@ validation_rules:
 ---
 `,
     );
-    const rules = await loadTemplateRules(abs);
+    const { rules } = await loadTemplateRules(abs);
     expect(rules.required_fields).toEqual(["a"]);
   });
 
@@ -216,7 +232,7 @@ validation_rules: {}
 ---
 `,
     );
-    const rules = await loadTemplateRules("templates/empty.md", SANDBOX);
+    const { rules } = await loadTemplateRules("templates/empty.md", SANDBOX);
     expect(rules.required_fields).toEqual([]);
     expect(rules.conditional_required_fields).toEqual([]);
     expect(rules.field_rules).toEqual([]);

@@ -95,16 +95,19 @@ export async function validateBuffer({ text, filepath, projectRoot }) {
   let rules = null;
   let sectionRules = {};
   if (fm.template) {
-    rules = await loadTemplateRules(fm.template, projectRoot);
+    const loaded = await loadTemplateRules(fm.template, projectRoot);
+    rules = loaded.rules;
     sectionRules = await loadTemplateSectionRules(fm.template, projectRoot);
-  }
-  if (!rules && fm.template) {
-    issues.push({
-      level: "error",
-      field: "template",
-      message: `Cannot load validation_rules from template '${fm.template}' — file not found, malformed YAML, or missing validation_rules block`,
-      fix: `Verify '${fm.template}' exists (relative to repo root) and contains a 'validation_rules:' block in its frontmatter. See templates/README.md for the template registry.`,
-    });
+    if (!rules) {
+      issues.push({
+        level: "error",
+        field: "template",
+        // Use the specific error from loadTemplateRules (D1: tells user exactly
+        // whether the file is missing, has bad YAML, or lacks validation_rules).
+        message: loaded.error,
+        fix: `Verify '${fm.template}' exists and contains a 'validation_rules:' block. See templates/README.md.`,
+      });
+    }
   }
   const hasSectionRules = Object.keys(sectionRules).length > 0;
   if (rules) {
