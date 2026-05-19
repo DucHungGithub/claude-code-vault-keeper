@@ -113,6 +113,19 @@ claude plugin install claude-code-vault-keeper@vault-keeper
 If `claude` isn't on `$PATH`, the command prints the manual steps instead of
 failing silently.
 
+### Post-install — skills you can now type
+
+Once the plugin is installed, six verbs become typeable in any Claude session:
+
+- `/vault.setup` — interview your repo into a configured vault.
+- `/vault.new task my-first-task` — scaffold a new doc from a template.
+- `/vault.health` — read-only digest of doctor + validate.
+- `/vault.fix` — apply deterministic auto-formatting.
+- `/vault.sync` — validate, then commit + push.
+- `/vault.monitor-git-sync` — arm a passive background watcher.
+
+Full catalog under [`skills/`](../skills/README.md).
+
 ## Build a real vault from scratch
 
 The `init` scaffold is good for a quick smoke test. For your own vault, here's
