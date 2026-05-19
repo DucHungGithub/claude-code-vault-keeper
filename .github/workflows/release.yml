@@ -35,18 +35,27 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
 
-      - name: Setup Node 22 (registry-url enables auth for `npm publish`)
+      - name: Setup Node 24 (ships npm ≥11 — needed for OIDC Trusted Publisher)
+        # Node 22 ships npm 10.x, which lacks the OIDC ID-token minting
+        # path used by npm Trusted Publishers — the publish step would
+        # fail ENEEDAUTH even with id-token:write granted. Node 24 ships
+        # npm 11.x out of the box, sidestepping a flaky `npm install -g
+        # npm@latest` self-upgrade.
+        # See https://docs.npmjs.com/trusted-publishers
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Upgrade npm to ≥11.5.1 (Trusted Publisher OIDC support)
-        # Node 22's shipped npm (10.x) does not know how to mint an OIDC
-        # ID token for npm Trusted Publishers; the publish step would fail
-        # with `npm error ENEEDAUTH` even though id-token:write is granted.
-        # See https://docs.npmjs.com/trusted-publishers
-        run: npm install -g npm@latest
+      - name: Confirm npm version supports OIDC (>=11.5.1)
+        run: |
+          NPM_VER=$(npm --version)
+          echo "npm version: $NPM_VER"
+          node -e "
+            const v = process.argv[1].split('.').map(Number);
+            const ok = v[0] > 11 || (v[0] === 11 && (v[1] > 5 || (v[1] === 5 && v[2] >= 1)));
+            if (!ok) { console.error('npm $NPM_VER is below 11.5.1 — OIDC will fail'); process.exit(1); }
+          " $NPM_VER
 
       - name: Setup Bun (for `bun test`)
         uses: oven-sh/setup-bun@v2
