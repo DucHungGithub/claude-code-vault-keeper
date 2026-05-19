@@ -15,10 +15,10 @@
 
 | ID | Plan | Status | Tests added | Notes |
 |----|------|--------|-------------|-------|
-| P1 | Cache loadTemplateRules | `[~]` | `tests/template-rules.test.js` | In progress |
-| P2 | Pre-compile regex in normalizeRules | `[ ]` | `tests/template-rules.test.js` | After P1 (same file) |
-| D1 | Structured error from loadTemplateRules | `[ ]` | `tests/template-rules.test.js` | After P1+P2 |
-| A2 | Fix _bundleMismatchMap mutable state | `[ ]` | `tests/public-api.test.js` | Independent |
+| P1 | Cache loadTemplateRules | `[x]` | `tests/p1-cache-template-rules.test.js` | Branch: perf/cache-and-precompile-template-rules |
+| P2 | Pre-compile regex in normalizeRules | `[x]` | `tests/p2-precompile-regex.test.js` | Same branch as P1 |
+| D1 | Structured error from loadTemplateRules | `[~]` | `tests/d1-structured-template-errors.test.js` | Branch: fix/structured-template-load-errors |
+| A2 | Fix _bundleMismatchMap mutable state | `[ ]` | `tests/a2-multi-vault-state.test.js` | Branch: fix/isolate-validation-state-per-vault |
 
 ## Medium Effort
 
