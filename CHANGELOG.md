@@ -4,6 +4,30 @@ All notable changes to `claude-code-vault-keeper` are tracked here. The
 format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] — 2026-05-19
+
+Hotfix for v0.6.0. The published bins were silently no-ops when invoked
+through the `node_modules/.bin/` symlink that npm/bun creates on install
+— both `vault-keeper` and `vault-keeper-validate` would exit 0 with no
+output. Running the scripts directly under `node …` worked because the
+bug was in the entry guard, not the dispatch.
+
+### Fixed
+
+- **Entry guards** in `cli/main.js` and `cli/validate-documents.js` now
+  resolve `process.argv[1]` with `realpathSync` before comparing to
+  `import.meta.url`. Under symlink invocation `argv[1]` is the symlink
+  path while `import.meta.url` is always the realpath of the module —
+  the unresolved comparison diverged and `main()` was skipped silently.
+  `vault-keeper --version` (and every subcommand) now prints again.
+
+### Tests
+
+- `tests/cli-main.test.js` adds a regression test that creates a
+  symlink to each bin in a tmpdir and asserts the invocation through
+  the symlink produces output. Catches any future regression of the
+  entry-guard logic.
+
 ## [0.6.0] — 2026-05-19
 
 Adds a multi-command CLI surface — `vault-keeper <subcommand>` — without

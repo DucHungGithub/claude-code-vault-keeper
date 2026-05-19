@@ -7,7 +7,13 @@
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  rmSync,
+  existsSync,
+  readFileSync,
+  symlinkSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -126,6 +132,50 @@ describe('vault-keeper (multi-tool CLI)', () => {
     expect(parsed.summary.total).toBe(1);
     expect(parsed.summary.valid).toBe(1);
     expect(parsed.summary.invalid).toBe(0);
+  });
+
+  test('REGRESSION — invoking through a symlinked bin still runs main()', () => {
+    // npm/bun place a symlink to cli/main.js at node_modules/.bin/vault-keeper
+    // when the package is installed. Earlier v0.6.0 had an entry-guard bug
+    // that compared `import.meta.url` against `pathToFileURL(process.argv[1])`
+    // directly — under symlink invocation the latter pointed at the symlink
+    // path and the former at the realpath, so main() never ran (silent
+    // success, no output). The fix resolves argv[1] with realpathSync first.
+    const linkDir = join(sandbox, 'fake-bin');
+    require('node:fs').mkdirSync(linkDir, { recursive: true });
+    const link = join(linkDir, 'vault-keeper');
+    symlinkSync(join(REPO_ROOT, 'cli', 'main.js'), link);
+
+    // Invoke through the symlink — must produce output, must exit 0.
+    const stdout = execFileSync('node', [link, '--version'], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const pkg = JSON.parse(
+      readFileSync(join(REPO_ROOT, 'package.json'), 'utf-8'),
+    );
+    expect(stdout.trim()).toBe(pkg.version);
+
+    // Same check for the legacy validate-documents.js bin.
+    const linkValidate = join(linkDir, 'vault-keeper-validate');
+    symlinkSync(
+      join(REPO_ROOT, 'cli', 'validate-documents.js'),
+      linkValidate,
+    );
+    // Should at least *try* to scan and report (no docs, no config → "No
+    // documents found"); we only care that any output appears, proving
+    // main() ran past the entry guard.
+    const out = (() => {
+      try {
+        return execFileSync('node', [linkValidate, '--root', sandbox], {
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+      } catch (err) {
+        return err.stdout?.toString() ?? '';
+      }
+    })();
+    expect(out.length).toBeGreaterThan(0);
   });
 
   test('validate sub delegates to validate-documents.js (matches direct run)', () => {

@@ -22,6 +22,7 @@
  */
 
 import { stat } from 'fs/promises';
+import { realpathSync } from 'node:fs';
 import { join, dirname, relative } from 'path';
 import { pathToFileURL } from 'node:url';
 import { glob } from 'glob';
@@ -669,9 +670,19 @@ async function main(argv = process.argv.slice(2)) {
   }
 }
 
-// Run if invoked directly (portable across Node + Bun + any ESM runtime).
-const __entry = pathToFileURL(process.argv[1] || '').href;
-if (import.meta.url === __entry) {
+// Run if invoked directly. `process.argv[1]` is the symlink path under
+// `node_modules/.bin/`, so we resolve it to the real path before comparing
+// against `import.meta.url` (which is always the realpath of this module).
+function __isDirectEntry() {
+  const arg1 = process.argv[1];
+  if (!arg1) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(arg1)).href;
+  } catch {
+    return false;
+  }
+}
+if (__isDirectEntry()) {
   main();
 }
 

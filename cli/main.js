@@ -23,6 +23,7 @@ import {
   writeFileSync,
   mkdirSync,
   readdirSync,
+  realpathSync,
   statSync,
 } from 'node:fs';
 
@@ -476,9 +477,25 @@ function runChild(cmd, args) {
 }
 
 // ── Entry guard ─────────────────────────────────────────────────────────────
+//
+// `process.argv[1]` is whatever the OS resolved when launching node — when
+// the bin is invoked via the npm/bun symlink at `node_modules/.bin/<name>`
+// that's the symlink path, but `import.meta.url` is always the resolved
+// real-path of this module. Comparing the two raw URLs would diverge under
+// any global/local bin install and silently skip main(). Resolving the
+// symlink before comparing fixes it for all install shapes.
 
-const __entry = pathToFileURL(process.argv[1] || '').href;
-if (import.meta.url === __entry) {
+function __isDirectEntry() {
+  const arg1 = process.argv[1];
+  if (!arg1) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(arg1)).href;
+  } catch {
+    return false;
+  }
+}
+
+if (__isDirectEntry()) {
   main().then(
     (code) => process.exit(code),
     (err) => {
