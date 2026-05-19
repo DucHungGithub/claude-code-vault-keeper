@@ -1,121 +1,225 @@
-# claude-code-vault-keeper
+# vault-keeper
 
 [![CI](https://github.com/nguyenvanduocit/claude-code-vault-keeper/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nguyenvanduocit/claude-code-vault-keeper/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/claude-code-vault-keeper.svg)](https://www.npmjs.com/package/claude-code-vault-keeper)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Template-driven validation for any markdown knowledge-vault.** A
-[Claude Code](https://github.com/anthropics/claude-code) plugin that
-ships:
+*Published on npm as **`claude-code-vault-keeper`** — the `vault-keeper`
+binary is what you'll actually type.*
 
-- **LSP server** — per-keystroke diagnostics, navigation, hover,
-  completion, code-action, code-lens, inlay-hint, rename,
-  document-formatting.
-- **CLI validator** (`vault-keeper-validate`) — full-vault validation
-  with exit codes suitable for CI / pre-commit gating.
-- **Shared parsing lib** — markdown body parser, template rules loader,
-  conditional-eval DSL, canonical formatter, vault-config.
+> Your vault has 1,247 notes. How many use `status: done` vs `status: completed`?
+> How many tag with `#book` vs `#books`? How many books are missing a `rating:` field?
+>
+> You don't know. Neither does Dataview. That's why your queries quietly lie.
 
-Editor and CLI parse bodies with the SAME parser and apply the SAME
-validation rules. One implementation, two entry points.
+---
 
-The plugin owns **no per-doc-type knowledge** — every rule comes from a
-template's `validation_rules` block. Drop in your own `templates/*.md`
-and the validator picks them up at runtime.
+## Every markdown vault rots the same way
 
-## Quick start
+1. You start with 50 notes and a tidy convention.
+2. You copy a template once, tweak it, lose track of which copy is the real one.
+3. AI tools (Claude, ChatGPT, Cursor) generate notes with slightly different
+   frontmatter than yours.
+4. Six months later: `tag` vs `tags`, `status: WIP` vs `status: in-progress`,
+   half your book notes have `author:`, the other half have `by:`.
+5. Your Dataview queries quietly miss half your data. You stop trusting them.
+6. You promise yourself a "cleanup pass." It never happens.
 
-The package ships two bins: **`vault-keeper`** (multi-tool) and
-**`vault-keeper-validate`** (validate-only alias, kept for backwards
-compatibility).
+**`vault-keeper` makes your vault enforce its own conventions.** Write the rules
+once, in a template you control. Get a red squiggle the moment a note breaks
+them — in your editor, in CI, in the loop where your AI assistant writes new
+notes.
 
-### One-shot via `bunx` / `npx` (no install)
+It works with any markdown folder: an Obsidian vault, a Logseq graph, a Foam
+workspace, a repo full of ADRs and RFCs, a personal Zettelkasten. The plugin
+contains **zero domain knowledge** about your notes. Your templates decide
+everything.
 
-```bash
-# Multi-tool: any subcommand works
-bunx -p claude-code-vault-keeper vault-keeper doctor
-bunx -p claude-code-vault-keeper vault-keeper validate --root /path/to/vault --json
-bunx -p claude-code-vault-keeper vault-keeper init my-new-vault
+> **Adopting an existing vault?** Don't try to convert 500 notes overnight.
+> Set `vaultFolders` in `.claude/vault-keeper.json` to one subfolder (e.g.
+> `["books"]`), author one template, point that folder's notes at it,
+> watch it go green. Folders outside `vaultFolders` are silently ignored,
+> so the rollout is incremental — add a folder when you're ready to enforce
+> it. See [`docs/vault-config.md`](docs/vault-config.md) for the config
+> reference and [`examples/example/`](examples/example/) for a working
+> single-folder setup to copy from.
 
-# Legacy alias (validate-only) — also works under bunx/npx
-bunx claude-code-vault-keeper@latest --root /path/to/vault --json
+---
+
+## What you actually see
+
+Two notes that drifted from your book-note template — one set `status: wip`
+where the template allows only `[reading, done, abandoned]`, the other is
+missing the `created:` field your queries depend on:
+
+```
+📄 library/books/2024-shogun.md
+   🚨 status: Invalid status: 'wip'
+      💡 Fix: Use one of: reading, done, abandoned
+   🚨 created: Missing required field: created
+      💡 Fix: Add created to frontmatter
+
+📄 library/books/atomic-habits.md
+   🚨 rating: Value 0 below minimum 1 for rating
+      💡 Fix: Set rating ≥ 1
+
+📊 SUMMARY
+Total Documents: 487
+✅ Valid: 484/487
+🚨 Errors: 3
+
+exit 1
 ```
 
-### Install once, reuse
+That same diagnostic appears **inline as you type** if you install the Claude
+Code plugin — no save, no run, no context switch.
 
-```bash
-# Global — adds `vault-keeper` + `vault-keeper-validate` to $PATH
-bun add -g claude-code-vault-keeper
-npm i  -g claude-code-vault-keeper
+CI fails on the first error. Reviewers stop nitpicking format and start
+reviewing content.
 
-# Project dev-dep
-bun add -D claude-code-vault-keeper
-npm i  -D claude-code-vault-keeper
+---
+
+## How the rules work
+
+Rules live **in your templates**, not buried in the tool. A book-note template
+might look like this:
+
+```markdown
+---
+template_path: templates/book.md
+document_type: book
+validation_rules:
+  required_fields: [title, author, created, status]
+  optional_fields: [rating, tags, finished]
+  field_rules:
+    - field: status
+      values: [reading, done, abandoned]
+    - field: rating
+      type: integer
+      min: 1
+  path_regex: "^library/books/"
+  state_machine:
+    reading: [done, abandoned]
+    done: []
+    abandoned: [reading]
+---
+
+# Book template
+
+Body sections this template expects.
+
+## Takeaways
+
+## Quotes
 ```
 
-### As a Claude Code plugin (inline LSP diagnostics)
+Edit the template. Every note that declares `template: templates/book.md`
+revalidates against the new rules — no rebuild, no code change. The
+[full rule vocabulary](docs/templates/frontmatter-rules.md) covers conditional
+required fields, state machines, regex, enums, type + minimum checks, body
+section ordering, link-target checks, and a small DSL (`and`, `or`, `in`,
+`not in`, `min_count`) for compound conditions.
 
-The fastest path is the bundled installer:
+---
+
+## Try it in 30 seconds
+
+```bash
+# 1. Scaffold a sample vault (no install)
+bunx -p claude-code-vault-keeper vault-keeper init my-vault
+cd my-vault
+
+# 2. Look at templates/note-template.md — those are the rules
+# 3. Validate
+bunx -p claude-code-vault-keeper vault-keeper validate
+# → Valid: 1/1, exit 0
+
+# 4. Break notes/note-001-hello.md (e.g. delete `owner:`)
+bunx -p claude-code-vault-keeper vault-keeper validate
+# → exit 1, explains exactly what broke and how to fix it
+```
+
+For per-keystroke diagnostics in your editor, install the Claude Code plugin:
 
 ```bash
 vault-keeper install-claude-code-plugin
 ```
 
-Equivalent manual steps (the installer prints them if `claude` is absent):
+That's it. Open any `.md` in your vault and the LSP highlights problems live.
 
-```bash
-claude marketplace add https://github.com/nguyenvanduocit/claude-code-vault-keeper.git
-claude plugin install claude-code-vault-keeper@vault-keeper
-```
+---
 
-The LSP server (`server/main.bundled.cjs`) ships pre-built — editor
-diagnostics need no extra install.
+## Who this is for
 
-### Subcommands
+- **Obsidian / Logseq / Foam users** with vaults large enough that you can't
+  manually keep them consistent. You have templates but no way to make notes
+  *honor* them. You'd love to know which 12 notes are missing a `created:`
+  field without writing your own script.
+- **Note-takers using AI assistants.** Claude, ChatGPT, Cursor, Copilot
+  cheerfully generate notes that drift from your conventions. Wire
+  `vault-keeper validate` into the AI's loop (or its post-write hook) and
+  it self-corrects from the same diagnostics you'd read — instead of
+  silently drifting your vault.
+- **Teams maintaining ADRs / RFCs / PRDs in markdown.** Reviews waste time on
+  "where's the `decision:` field" comments. CI doesn't gate format.
+  `vault-keeper` exit codes plug into any CI runner.
+- **Anyone whose markdown collection has crossed the threshold from "I know
+  what's in here" to "I hope it's in here somewhere."**
 
-| Subcommand | What it does |
-|---|---|
-| `vault-keeper validate` | Validate vault docs against template rules (same surface as the legacy `vault-keeper-validate`). |
-| `vault-keeper doctor` | Health-check the environment, cwd vault config, and Claude Code plugin state. `--json` for CI. |
-| `vault-keeper install-claude-code-plugin` | Run `claude marketplace add` + `claude plugin install` for you. |
-| `vault-keeper init [dir]` | Scaffold a minimal vault (`.claude/`, `templates/note-template.md`, `notes/note-001-hello.md`) in `dir` (default: `.`). |
-| `vault-keeper help [cmd]` | Top-level or per-command usage. |
-| `vault-keeper --version` | Print the package version. |
+---
+
+## Install
+
+| Path | When | Command |
+|---|---|---|
+| **One-shot** | Trying it out, one-off CI check. | `bunx -p claude-code-vault-keeper vault-keeper <cmd>` |
+| **Global** | Many vaults; want `vault-keeper` on `$PATH`. | `bun add -g claude-code-vault-keeper` |
+| **Project dev-dep** | Vault lives inside a JS/TS repo. | `bun add -D claude-code-vault-keeper` |
+| **Claude Code plugin** | Inline LSP diagnostics in your editor. | `vault-keeper install-claude-code-plugin` |
+
+`npm` / `npx` work everywhere `bun` / `bunx` do — no bun runtime required.
+Node ≥ 18.
+
+---
+
+## What's in the box
+
+- **CLI** (`vault-keeper`) — `validate`, `doctor`, `init`,
+  `install-claude-code-plugin`. Exit codes wired for CI.
+- **LSP server** — diagnostics, hover, completion, code-action, code-lens,
+  inlay-hint, rename, document formatting. Pre-built bundle, no install step
+  for editor diagnostics.
+- **Shared parser & formatter library** — the same code drives editor and CI.
+  What passes locally passes in CI; no "works on my machine."
+- **No domain knowledge.** Every rule comes from a template you wrote. Drop
+  `vault-keeper` into any markdown folder and it adapts.
+
+---
 
 ## Documentation
 
-Full documentation lives in [`docs/`](docs/README.md). Recommended
-reading order:
+- [Getting started](docs/getting-started.md) — install + first vault, 5 min.
+- [Templates](docs/templates/README.md) — author rules your vault enforces.
+- [CLI reference](docs/cli-validator.md) — every flag, every exit code.
+- [LSP features](docs/lsp-features.md) — what each editor surface does.
+- [CI/CD integration](docs/ci-cd-integration.md) — GitHub Actions / GitLab /
+  generic Bash.
+- [Vault config](docs/vault-config.md) — `.claude/vault-keeper.json` reference.
+- [Troubleshooting](docs/troubleshooting.md) — concrete fixes for common errors.
 
-1. [Getting started](docs/getting-started.md) — install + first vault
-   walkthrough.
-2. [Vault config](docs/vault-config.md) — `.claude/vault-keeper.json`
-   reference.
-3. [Templates](docs/templates/README.md) — how to author templates that
-   declare validation rules.
-4. [CLI validator](docs/cli-validator.md) — flags, exit codes, JSON
-   output.
-5. [LSP features](docs/lsp-features.md) — what shows up in the editor.
-6. [CI/CD integration](docs/ci-cd-integration.md) — GitHub Actions /
-   GitLab CI / generic Bash patterns.
-7. [Troubleshooting](docs/troubleshooting.md) — common errors and fixes.
+A self-contained reference vault that exercises every rule kind lives at
+[`examples/example/`](examples/example/README.md) — copy-paste from it.
 
-Reference:
-
-- [Canonical formatter](docs/canonical-formatter.md)
-- [Body parser](docs/body-parser.md)
-- [Naming conventions](docs/naming-conventions.md)
-- [Architecture](docs/architecture.md)
+---
 
 ## Repo
 
 Source: <https://github.com/nguyenvanduocit/claude-code-vault-keeper>
 Issues: <https://github.com/nguyenvanduocit/claude-code-vault-keeper/issues>
-Releasing: see [`docs/releasing.md`](docs/releasing.md) for the tag-driven
-release workflow + npm Trusted Publisher / `NPM_TOKEN` setup.
+Releasing: see [`docs/releasing.md`](docs/releasing.md).
 
-Cloning is only needed to contribute. End users should prefer `bunx` /
-`npx` / `bun add` / `npm i` per the Quick start above.
+Cloning is for contributors. End users install via `bunx` / `npx` / `bun add` /
+`npm i`.
 
 ## License
 

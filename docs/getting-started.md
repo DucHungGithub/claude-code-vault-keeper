@@ -1,33 +1,79 @@
 # Getting started
 
-End-to-end walkthrough: install the CLI, set up a vault, write a template,
-validate a conforming document. Editor-side diagnostics via Claude Code are
-covered at the end.
+You're 5 minutes from a vault that catches its own mistakes.
+
+What you'll have by the end of this page:
+
+- A markdown vault with a template that declares its own rules.
+- A note that validates clean.
+- A note you deliberately broke, showing the error you'd see in CI.
+- *(Optional)* Inline diagnostics in your editor via the Claude Code plugin.
 
 ## Prerequisites
 
 - **Node.js** ≥ 18 — required by the CLI runtime.
-- *Optional:* **[Bun](https://bun.sh)** — `bunx` makes the one-shot run
-  below faster and avoids touching your npm cache.
+- *Optional:* **[Bun](https://bun.sh)** — `bunx` is faster than `npx` and
+  avoids touching your npm cache.
 - *Optional:* **[Claude Code](https://github.com/anthropics/claude-code)** —
-  required only if you want editor-side LSP diagnostics. The CLI works
-  standalone.
+  required only for editor-side LSP diagnostics. The CLI is standalone.
 
-## Pick an installation style
+## The 30-second smoke test
+
+Run this anywhere. It scaffolds a tiny vault, validates it green, then breaks
+it on purpose so you can see what a real error looks like.
+
+```bash
+# 1. Scaffold
+bunx -p claude-code-vault-keeper vault-keeper init /tmp/vk-demo
+cd /tmp/vk-demo
+
+# 2. Validate — should pass
+bunx -p claude-code-vault-keeper vault-keeper validate
+# → "Valid: 1/1", exit 0
+
+# 3. Break it — remove the owner: line
+sed -i '' '/^owner:/d' notes/note-001-hello.md   # macOS
+# or:  sed -i '/^owner:/d' notes/note-001-hello.md   # Linux
+
+# 4. Validate again — should fail with a clear fix
+bunx -p claude-code-vault-keeper vault-keeper validate
+```
+
+You'll see something like:
+
+```
+📄 notes/note-001-hello.md
+   🚨 owner: Missing required field: owner
+      💡 Fix: Add owner to frontmatter
+
+📊 SUMMARY
+⚠️ note: 0/1 (0.0%)
+🚨 Errors: 1
+
+exit 1
+```
+
+That's it. That diagnostic is the same shape you'll see in CI logs, in your
+editor (if you install the plugin), and in JSON output (`--json`).
+
+## Pick a permanent install style
+
+The one-shot `bunx` command above is fine for trying things. For day-to-day
+use, pick one:
 
 | Style | Use when | Command |
 |---|---|---|
-| **One-shot** (no install) | Evaluating the tool / one-off CI check. | `bunx -p claude-code-vault-keeper vault-keeper <command>` *(or `npx -p claude-code-vault-keeper vault-keeper <command>`)* |
-| **Project dev-dep** | The vault lives inside a JS/TS repo and CI runs `npm`/`bun` already. | `bun add -D claude-code-vault-keeper` *(or `npm i -D claude-code-vault-keeper`)* |
-| **Global** | You author many vaults; want `vault-keeper` in `$PATH`. | `bun add -g claude-code-vault-keeper` *(or `npm i -g claude-code-vault-keeper`)* |
-| **Claude Code plugin (LSP)** | You want inline diagnostics in your editor. | `vault-keeper install-claude-code-plugin` *(or run the two `claude …` commands yourself — see below)* |
+| **One-shot** (no install) | One-off check, CI runner pulls fresh each time. | `bunx -p claude-code-vault-keeper vault-keeper <cmd>` (or `npx -p claude-code-vault-keeper vault-keeper <cmd>`) |
+| **Project dev-dep** | Vault lives inside a JS/TS repo that already runs `npm`/`bun`. | `bun add -D claude-code-vault-keeper` (or `npm i -D claude-code-vault-keeper`) |
+| **Global** | You author many vaults; want `vault-keeper` in `$PATH`. | `bun add -g claude-code-vault-keeper` (or `npm i -g claude-code-vault-keeper`) |
+| **Claude Code plugin** | You want inline LSP diagnostics in your editor. | `vault-keeper install-claude-code-plugin` |
 
-You do **not** need to `git clone` the repo to use the validator. Cloning
-is only for contributing — see [Architecture](architecture.md#repo-layout).
+You do **not** need to `git clone` the repo to use `vault-keeper`. Cloning is
+for contributing — see [Architecture](architecture.md#repo-layout).
 
-## Available subcommands
+## Subcommands at a glance
 
-After install, the `vault-keeper` bin exposes:
+After install:
 
 ```text
 vault-keeper validate [--root <vault>] [--path <file>] [--strict] [--json]
@@ -38,21 +84,18 @@ vault-keeper help [<command>]
 vault-keeper --version
 ```
 
-The legacy bin `vault-keeper-validate` (validate-only, same flag surface as
-`vault-keeper validate`) is kept for backwards compatibility — both names
-remain on `$PATH` after install.
+The legacy bin `vault-keeper-validate` is kept as a validate-only alias for
+backwards compatibility — same flags as `vault-keeper validate`.
 
 ### `doctor`
-
-Verify the environment and the current vault are ready to go:
 
 ```bash
 vault-keeper doctor
 ```
 
-The checklist covers Node version, bun availability, the `claude` CLI, the
-LSP bundle, and the cwd's vault config + `templates/` directory. Pass
-`--json` for CI-consumable output.
+Checklist of Node version, bun availability, the `claude` CLI, the LSP bundle,
+the cwd vault config, and the cwd `templates/` directory. Pass `--json` for
+CI-friendly output.
 
 ### `install-claude-code-plugin`
 
@@ -67,53 +110,22 @@ claude marketplace add https://github.com/nguyenvanduocit/claude-code-vault-keep
 claude plugin install claude-code-vault-keeper@vault-keeper
 ```
 
-If `claude` is not on `$PATH`, the command prints the manual steps instead
-of failing silently.
+If `claude` isn't on `$PATH`, the command prints the manual steps instead of
+failing silently.
 
-### `init`
+## Build a real vault from scratch
 
-Scaffold a minimal vault skeleton:
-
-```bash
-vault-keeper init my-vault
-cd my-vault
-vault-keeper validate
-```
-
-Creates `.claude/vault-keeper.json`, `templates/note-template.md`, and a
-sample `notes/note-001-hello.md`. The sample validates clean — start
-editing.
-
-## Verify the install
-
-Run `doctor` from anywhere to confirm Node, the LSP bundle, the optional
-`claude` CLI, and the cwd vault state are all healthy:
-
-```bash
-vault-keeper doctor
-```
-
-For an end-to-end check, scaffold and validate a fresh vault in one step:
-
-```bash
-vault-keeper init /tmp/vk-smoke && cd /tmp/vk-smoke && vault-keeper validate
-# → "Valid: 1/1", exit 0
-```
-
-The repository's runnable example vault (15 invalid fixtures + 9 valid
-documents) is browsable on GitHub:
-<https://github.com/nguyenvanduocit/claude-code-vault-keeper/tree/main/examples/example>.
-
-## Set up your own vault
+The `init` scaffold is good for a quick smoke test. For your own vault, here's
+the explicit walkthrough — three concepts, three steps.
 
 A vault needs three things:
 
-1. **Templates** — at least one markdown file in `templates/` whose
-   frontmatter contains a `validation_rules:` block.
-2. **Documents** — markdown files under the configured `vaultRoot` whose
-   own frontmatter declares `template: templates/<your-template>.md`.
-3. **(Optional) config** — `.claude/vault-keeper.json` if your folder
-   layout differs from the defaults (whole repo as vault).
+1. **Templates** — at least one markdown file under `templates/` whose
+   frontmatter declares a `validation_rules:` block.
+2. **Documents** — markdown files whose frontmatter declares
+   `template: templates/<your-template>.md`.
+3. **(Optional) config** — `.claude/vault-keeper.json` if your folder layout
+   differs from the defaults.
 
 ### Step 1 — create the layout
 
@@ -124,8 +136,8 @@ cd my-vault
 
 ### Step 2 — declare vault config (optional)
 
-If you want the validator to scan only `notes/` instead of the whole
-repo:
+Use this when you want to scan only specific folders (default: the whole
+repo):
 
 ```bash
 cat > .claude/vault-keeper.json <<'EOF'
@@ -136,9 +148,9 @@ cat > .claude/vault-keeper.json <<'EOF'
 EOF
 ```
 
-With no config file, the whole repo IS the vault and only generic patterns
-are excluded (`node_modules`, `.vitepress`, `README.md`, `CLAUDE.md`,
-`CLAUDE.local.md`). See [vault-config](vault-config.md) for every atom.
+Without a config file, the whole repo IS the vault, with generic exclusions
+(`node_modules`, `.vitepress`, `README.md`, `CLAUDE.md`, `CLAUDE.local.md`).
+See [vault-config](vault-config.md) for the full reference.
 
 ### Step 3 — write a template
 
@@ -149,7 +161,7 @@ template_path: templates/note-template.md
 document_type: note
 validation_rules:
   required_fields: [template, document_type, title, owner]
-  optional_fields: [tags]
+  optional_fields: [tags, status]
   field_rules:
     - field: status
       values: [draft, review, approved]
@@ -197,30 +209,28 @@ EOF
 From the vault directory:
 
 ```bash
-bunx claude-code-vault-keeper@latest --root .
-# or, if installed locally / globally:
-vault-keeper-validate --root .
+vault-keeper validate
+# → "Valid: 1/1", exit 0
 ```
 
-Expected: `Valid: 1/1`, exit code `0`. Try removing the `owner:` line —
-the validator will exit `1` and tell you which field is missing plus how
-to fix it.
+Try removing the `owner:` line — the validator exits `1` and tells you which
+field is missing plus how to fix it.
 
-For JSON-formatted output (the form CI consumes):
+For JSON output (the form CI consumes):
 
 ```bash
-bunx claude-code-vault-keeper@latest --root . --json
+vault-keeper validate --json
 ```
 
-### Step 6 — open in an editor with the LSP
+### Step 6 — open in your editor
 
-If you installed via Claude Code (the marketplace path above), the LSP is
-already wired up. Open any `.md` file in your vault and diagnostics show
-inline as you type.
+If you installed via the Claude Code plugin path (the marketplace command
+above), the LSP is already wired up. Open any `.md` file in your vault and
+diagnostics show inline as you type.
 
-The LSP recognizes a directory as a vault root when it contains either a
-`templates/` directory or a `.claude/vault-keeper.json` file. Both are
-present in your setup.
+The LSP recognises a directory as a vault root when it contains either a
+`templates/` directory or a `.claude/vault-keeper.json` file. Both are present
+in your setup.
 
 For a deeper editor walkthrough see [lsp-features](lsp-features.md).
 
@@ -230,8 +240,8 @@ For a deeper editor walkthrough see [lsp-features](lsp-features.md).
   [templates/README](templates/README.md) for the full vocabulary.
 - For CI gating see [ci-cd-integration](ci-cd-integration.md).
 - Stuck on an error? Check [troubleshooting](troubleshooting.md).
-- Browse the bundled `examples/example/` for a working vault that
-  exercises every rule kind — both the
+- Browse the bundled `examples/example/` for a working vault that exercises
+  every rule kind — both the
   [README map](https://github.com/nguyenvanduocit/claude-code-vault-keeper/blob/main/examples/example/README.md)
   and [`tests/example-vault.expectations.json`](https://github.com/nguyenvanduocit/claude-code-vault-keeper/blob/main/tests/example-vault.expectations.json)
   enumerate every fixture and the diagnostic it demonstrates.
