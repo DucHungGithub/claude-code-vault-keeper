@@ -58,18 +58,37 @@ import {
  */
 function validatePathRegex(rules, filepath, projectRoot) {
   if (!rules || !rules.path_regex) return [];
+
+  // Use pre-compiled regex from normalizeRules when available (P2).
+  // '_compiledPathRegex' in rules → normalizeRules ran; null means invalid regex.
   let re;
-  try {
-    re = new RegExp(rules.path_regex);
-  } catch (err) {
-    return [{
-      level: 'error',
-      field: 'template',
-      error_type: 'path-regex-bad-regex',
-      message: `Template's path_regex is not a valid regex: ${err.message}`,
-      fix: `Fix the regex in the template's validation_rules.path_regex.`,
-    }];
+  if ('_compiledPathRegex' in rules) {
+    if (!rules._compiledPathRegex) {
+      // normalizeRules already tried to compile and got an error
+      return [{
+        level: 'error',
+        field: 'template',
+        error_type: 'path-regex-bad-regex',
+        message: `Template's path_regex is not a valid regex: ${rules.path_regex}`,
+        fix: `Fix the regex in the template's validation_rules.path_regex.`,
+      }];
+    }
+    re = rules._compiledPathRegex;
+  } else {
+    // Fallback for rules not through normalizeRules (e.g. raw inline objects)
+    try {
+      re = new RegExp(rules.path_regex);
+    } catch (err) {
+      return [{
+        level: 'error',
+        field: 'template',
+        error_type: 'path-regex-bad-regex',
+        message: `Template's path_regex is not a valid regex: ${err.message}`,
+        fix: `Fix the regex in the template's validation_rules.path_regex.`,
+      }];
+    }
   }
+
   const rel = relative(projectRoot || process.cwd(), filepath).split(/[\\/]/).join('/');
   if (re.test(rel)) return [];
   return [{
