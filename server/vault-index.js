@@ -16,6 +16,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { join, relative, resolve, dirname, basename, extname } from "node:path";
 import { pathToFileURL } from "node:url";
 import matter from "gray-matter";
+import { minimatch } from "minimatch";
 import { loadVaultConfig } from "../lib/vault-config.js";
 
 /**
@@ -169,7 +170,11 @@ export class VaultIndex {
   /** Recursively walk a directory for .md files, skipping excluded dirs. */
   async _walkDir(dir) {
     const results = [];
+    // Hardcoded safety net for well-known non-vault dirs (cheap, no glob eval).
     const SKIP = new Set(["codebase", "node_modules", ".git", ".omc"]);
+    // User-configured excludes from vault-keeper.json (P3 fix: was ignored here
+    // while CLI correctly filtered them, causing LSP/CLI inconsistency).
+    const excludePatterns = loadVaultConfig(this._root).excludePatterns ?? [];
     const stack = [dir];
     while (stack.length) {
       const d = stack.pop();
@@ -182,6 +187,12 @@ export class VaultIndex {
       for (const e of entries) {
         if (e.name.startsWith(".") && e.name !== ".specify") continue;
         const full = join(d, e.name);
+        // Repo-relative path for glob matching (forward slashes, no leading /).
+        const relPath = relative(this._root, full);
+        if (
+          excludePatterns.length > 0 &&
+          excludePatterns.some((p) => minimatch(relPath, p))
+        ) continue;
         if (e.isDirectory()) {
           if (!SKIP.has(e.name)) stack.push(full);
         } else if (e.isFile() && e.name.endsWith(".md")) {
