@@ -139,10 +139,19 @@ bunx -p claude-code-vault-keeper vault-keeper validate
 # → exit 1, explains exactly what broke and how to fix it
 ```
 
-For per-keystroke diagnostics in your editor, install the Claude Code plugin:
+For per-keystroke diagnostics in your editor, install the Claude Code plugin.
+The `vault-keeper` CLI ships a one-liner wrapper:
 
 ```bash
 vault-keeper install-claude-code-plugin
+```
+
+Or, if you don't have the CLI on `$PATH` (or just prefer to see what's
+happening), run the two `claude` commands yourself:
+
+```bash
+claude plugin marketplace add https://github.com/nguyenvanduocit/claude-code-vault-keeper.git
+claude plugin install claude-code-vault-keeper@vault-keeper
 ```
 
 That's it. Open any `.md` in your vault and the LSP highlights problems live.
