@@ -1,5 +1,9 @@
 # claude-code-vault-keeper
 
+[![CI](https://github.com/nguyenvanduocit/claude-code-vault-keeper/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nguyenvanduocit/claude-code-vault-keeper/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/claude-code-vault-keeper.svg)](https://www.npmjs.com/package/claude-code-vault-keeper)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **Template-driven validation for any markdown knowledge-vault.** A
 [Claude Code](https://github.com/anthropics/claude-code) plugin that
 ships:
@@ -107,6 +111,8 @@ Reference:
 
 Source: <https://github.com/nguyenvanduocit/claude-code-vault-keeper>
 Issues: <https://github.com/nguyenvanduocit/claude-code-vault-keeper/issues>
+Releasing: see [`docs/releasing.md`](docs/releasing.md) for the tag-driven
+release workflow + npm Trusted Publisher / `NPM_TOKEN` setup.
 
 Cloning is only needed to contribute. End users should prefer `bunx` /
 `npx` / `bun add` / `npm i` per the Quick start above.

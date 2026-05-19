@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel an in-flight CI run on the same ref if a new commit lands — saves
+# Actions minutes when force-pushing or rapid-pushing during dev.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: bun test + smoke (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node (LTS, for build + smoke + node-matrix parity)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Setup Bun (for `bun test`)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install runtime dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build LSP bundle
+        run: bun run build
+
+      - name: Run test suite
+        run: bun test ./tests
+
+      - name: Run smoke (server + example LSP)
+        run: bun run smoke
+
+      - name: Pack tarball (dry-run)
+        run: npm pack --dry-run
+
+  node-compat:
+    name: node ${{ matrix.node-version }} compat
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['18', '20', '22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install runtime dependencies (npm — node-only path)
+        run: npm install --no-audit --no-fund
+
+      - name: Build LSP bundle
+        run: npm run build
+
+      - name: vault-keeper --version (CLI sanity)
+        run: node cli/main.js --version
+
+      - name: vault-keeper doctor (env health-check)
+        run: node cli/main.js doctor
+
+      - name: Validate bundled example vault (asserts CLI runs under node)
+        # examples/example deliberately ships invalid fixtures → exit 1.
+        # Swallow the exit code, parse the JSON, assert summary numbers.
+        run: |
+          set +e
+          node cli/main.js validate --root examples/example --json > /tmp/report.json
+          set -e
+          node -e "
+            const r = JSON.parse(require('fs').readFileSync('/tmp/report.json', 'utf8'));
+            const s = r.summary;
+            console.log('summary:', JSON.stringify(s));
+            if (s.total !== 24 || s.valid !== 9 || s.invalid !== 15) {
+              throw new Error('example vault summary changed unexpectedly');
+            }
+          "
+
+      - name: Init + validate round-trip (asserts scaffolding works)
+        run: |
+          node cli/main.js init /tmp/vk-ci-init
+          cd /tmp/vk-ci-init
+          node $GITHUB_WORKSPACE/cli/main.js validate --root . --json > /tmp/init.json
+          node -e "
+            const r = JSON.parse(require('fs').readFileSync('/tmp/init.json', 'utf8'));
+            if (r.summary.valid !== 1 || r.summary.invalid !== 0) {
+              throw new Error('scaffolded vault should validate clean');
+            }
+          "
