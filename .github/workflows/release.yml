@@ -41,6 +41,13 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Upgrade npm to ≥11.5.1 (Trusted Publisher OIDC support)
+        # Node 22's shipped npm (10.x) does not know how to mint an OIDC
+        # ID token for npm Trusted Publishers; the publish step would fail
+        # with `npm error ENEEDAUTH` even though id-token:write is granted.
+        # See https://docs.npmjs.com/trusted-publishers
+        run: npm install -g npm@latest
+
       - name: Setup Bun (for `bun test`)
         uses: oven-sh/setup-bun@v2
         with:
