@@ -116,8 +116,6 @@ describe('loadVaultConfig', () => {
     expect(cfg.excludePatterns).toContain('**/README.md');
     expect(cfg.excludePatterns).toContain('**/CLAUDE.md');
     expect(cfg.excludePatterns).toContain('**/node_modules/**');
-    // No default folder→regex map — vaults opt in by declaring namingPatterns.
-    expect(cfg.namingPatterns).toEqual({});
   });
 
   test('config file overrides each atom', () => {
@@ -128,15 +126,12 @@ describe('loadVaultConfig', () => {
         vaultRoot: 'docs',
         vaultFolders: ['docs'],
         excludePatterns: ['**/node_modules/**'],
-        namingPatterns: { 'docs/adr': '^adr-\\d+\\.md$' },
       }),
     );
     const cfg = loadVaultConfig(tmp);
     expect(cfg.vaultRoot).toBe('docs');
     expect(cfg.vaultFolders).toEqual(['docs']);
     expect(cfg.excludePatterns).toEqual(['**/node_modules/**']);
-    expect(cfg.namingPatterns['docs/adr']).toBeInstanceOf(RegExp);
-    expect(cfg.namingPatterns['docs/adr'].test('adr-7.md')).toBe(true);
   });
 
   test('partial config keeps defaults for unspecified atoms', () => {

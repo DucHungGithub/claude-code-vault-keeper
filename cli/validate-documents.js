@@ -38,35 +38,34 @@ import {
   validateTemplateMetaLeak,
   suggestSlug,
   validateSlug,
-  validateNaming,
   stripCodeRegions,
   validatePaths,
 } from '../lib/validators.js';
 
 /**
- * Validate the document lives in a folder its template permits.
+ * Validate the document path matches the regex its template declares.
  *
- * Each template self-declares `allowed_folders` (single regex string) under
- * its `validation_rules` block. The validator compiles the regex and tests
+ * Each template self-declares `path_regex` (single regex string) under its
+ * `validation_rules` block. The validator compiles the regex and tests
  * against the doc's repo-relative path. When the field is null/absent the
  * check is skipped — leaves room for templates that intentionally span every
- * folder (or for the migration-window fallback).
+ * folder.
  *
  * Path is normalized to forward slashes regardless of platform separator so
  * regexes authored on macOS/Linux match identically on Windows.
  */
-function validateAllowedFolders(rules, filepath, projectRoot) {
-  if (!rules || !rules.allowed_folders) return [];
+function validatePathRegex(rules, filepath, projectRoot) {
+  if (!rules || !rules.path_regex) return [];
   let re;
   try {
-    re = new RegExp(rules.allowed_folders);
+    re = new RegExp(rules.path_regex);
   } catch (err) {
     return [{
       level: 'error',
       field: 'template',
-      error_type: 'allowed-folders-bad-regex',
-      message: `Template's allowed_folders is not a valid regex: ${err.message}`,
-      fix: `Fix the regex in the template's validation_rules.allowed_folders.`,
+      error_type: 'path-regex-bad-regex',
+      message: `Template's path_regex is not a valid regex: ${err.message}`,
+      fix: `Fix the regex in the template's validation_rules.path_regex.`,
     }];
   }
   const rel = relative(projectRoot || process.cwd(), filepath).split(/[\\/]/).join('/');
@@ -74,13 +73,13 @@ function validateAllowedFolders(rules, filepath, projectRoot) {
   return [{
     level: 'error',
     field: 'location',
-    error_type: 'folder-placement',
-    message: `Document path "${rel}" does not match template's allowed_folders regex.`,
-    fix: `Move the file to a folder matching: ${rules.allowed_folders}`,
+    error_type: 'path-regex-mismatch',
+    message: `Document path "${rel}" does not match template's path_regex.`,
+    fix: `Move/rename the file to match: ${rules.path_regex}`,
   }];
 }
 
-// validateNaming, stripCodeRegions, validatePaths → imported from ../lib/validators.js above.
+// stripCodeRegions, validatePaths → imported from ../lib/validators.js above.
 
 /**
  * Validate link existence for frontmatter.relationships.
@@ -172,7 +171,6 @@ async function validateDocument(filepath, options = {}) {
   // Cross-cutting validators (independent of doc type / template rules)
   allIssues.push(...validateTemplateField(fm, filepath));
   allIssues.push(...validateTemplateMetaLeak(fm, filepath));
-  allIssues.push(...validateNaming(filepath));
   allIssues.push(...validateSlug(filepath));
   allIssues.push(...validatePaths(fm, doc.body));
   allIssues.push(...await validateLinkExistence(fm, filepath));
@@ -196,7 +194,7 @@ async function validateDocument(filepath, options = {}) {
     }
   } else {
     allIssues.push(...applyRules(rules, fm, doc.body, filepath));
-    allIssues.push(...validateAllowedFolders(rules, filepath, options.projectRoot));
+    allIssues.push(...validatePathRegex(rules, filepath, options.projectRoot));
   }
 
   // Bundle README template mismatch.
@@ -239,10 +237,10 @@ async function validateDocument(filepath, options = {}) {
  * Bundle-mismatch detector state.
  *
  * When a `<id>/README.md` sits at a path that some content template's
- * `allowed_folders` regex accepts as a bundle root, but the doc's own
- * `template:` field is missing or set to `folder-readme-template`, the
- * doc would otherwise silently escape schema validation
- * (folder-readme-template's regex is permissive — matches any `/README.md`).
+ * `path_regex` accepts as a bundle root, but the doc's own `template:`
+ * field is missing or set to `folder-readme-template`, the doc would
+ * otherwise silently escape schema validation (folder-readme-template's
+ * regex is permissive — matches any `/README.md`).
  *
  * `findBundleReadmes()` populates this map at scan time; `validateDocument()`
  * consults it and synthesizes a `bundle-readme-template-mismatch` error.
@@ -256,21 +254,21 @@ async function loadContentTemplateBundlePatterns(projectRoot = process.cwd()) {
   const patterns = [];
   const tmplFiles = glob.sync('templates/*-template.md', { cwd: projectRoot });
   for (const tf of tmplFiles) {
-    // folder-readme-template's `allowed_folders` is permissive by design —
+    // folder-readme-template's `path_regex` is permissive by design —
     // exclude it so it never serves as the "expected" bundle template.
     if (tf.endsWith('folder-readme-template.md')) continue;
     const rules = await loadTemplateRules(tf, projectRoot);
-    if (!rules?.allowed_folders) continue;
+    if (!rules?.path_regex) continue;
     // Only collect templates whose regex actually advertises bundle support
     // (has a `/README\.md` alternative). Flat-only templates are skipped.
-    if (!rules.allowed_folders.includes('/README\\.md')) continue;
+    if (!rules.path_regex.includes('/README\\.md')) continue;
     try {
       patterns.push({
         template: `templates/${tf.split('/').pop()}`,
-        regex: new RegExp(rules.allowed_folders),
+        regex: new RegExp(rules.path_regex),
       });
     } catch {
-      // Invalid regex — validateAllowedFolders surfaces this elsewhere.
+      // Invalid regex — validatePathRegex surfaces this elsewhere.
     }
   }
   _bundleTemplatePatternsCache = patterns;
@@ -288,8 +286,8 @@ async function loadContentTemplateBundlePatterns(projectRoot = process.cwd()) {
  *
  * Generic: no hardcoded paths or discipline names. The document's own
  * `template:` field decides whether it's bundle canonical content. Any
- * template whose `allowed_folders` regex permits a `/README.md$` suffix
- * automatically opts into this mechanism.
+ * template whose `path_regex` permits a `/README.md$` suffix automatically
+ * opts into this mechanism.
  *
  * Pass 4 (bundle enforcement): when a README's path matches some
  * content template's bundle regex but its template field is missing or set to
@@ -585,7 +583,7 @@ async function main() {
   // and chdir into it BEFORE any scan. This file derives every path from
   // process.cwd() (globs in findDocuments/findAllFiles, loadTemplateRules'
   // default projectRoot, the lazy loadVaultConfig() behind
-  // CONFIG.contentFolders/excludePatterns/namingPatterns, and relative()
+  // CONFIG.contentFolders/excludePatterns, and relative()
   // calls). chdir is the single, explicit rebind point.
   const cliRoot = args.includes('--root')
     ? args[args.indexOf('--root') + 1]
@@ -683,7 +681,6 @@ export {
   // Pure validators (no I/O)
   validateTemplateField,
   validateTemplateMetaLeak,
-  validateNaming,
   validateSlug,
   suggestSlug,
   validatePaths,

@@ -4,7 +4,7 @@ document_type: note
 validation_rules:
   tier: KNOWLEDGE
   required_fields: [template, document_type, title, owner]
-  allowed_folders: "^docs/notes/"
+  path_regex: "^docs/notes/"
 ---
 
 # Note Template

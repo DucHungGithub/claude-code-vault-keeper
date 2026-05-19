@@ -81,7 +81,6 @@ server/validator.js
         ├── lib/validators.js
         │     ├── validateTemplateField
         │     ├── validateTemplateMetaLeak
-        │     ├── validateNaming
         │     ├── validateSlug
         │     ├── validatePaths
         │     └── applyRules
@@ -107,13 +106,13 @@ process.argv (--root, --path, --strict, --json)
 cli/validate-documents.js#main
         │  resolveProjectRoot + chdir
         ├── lib/vault-config.js loadVaultConfig
-        │     └── vaultRoot, vaultFolders, excludePatterns, namingPatterns
+        │     └── vaultRoot, vaultFolders, excludePatterns
         ├── findDocuments(target) ──→ markdown file list
         │       └── findBundleReadmes (bundle re-include scan)
         ├── for each doc:
         │     └── validateDocument(filepath)
         │             ├── lib/doc-io.js parseDocument
-        │             ├── lib/validators.js (template field, leak, naming, slug, paths)
+        │             ├── lib/validators.js (template field, leak, slug, paths)
         │             ├── lib/validators.js applyRules
         │             │     ├── required_fields
         │             │     ├── field_rules (regex/enum/type/min)
@@ -121,7 +120,7 @@ cli/validate-documents.js#main
         │             │     │     └── lib/conditional-eval.js (DSL)
         │             │     ├── state_machine
         │             │     └── body_section: prefix check
-        │             └── validateAllowedFolders
+        │             └── validatePathRegex
         ├── findAllFiles(target) ──→ asset slug pass (non-md)
         │
         └── generateSummary → printResults (banner) OR JSON.stringify
@@ -185,16 +184,14 @@ frontmatter object + filepath and returns an `Issue[]`:
 
 - `validateTemplateField` — template field shape.
 - `validateTemplateMetaLeak` — template-only keys leaked into instances.
-- `validateNaming` — folder-level `namingPatterns` check.
 - `validateSlug` — folder + file slug rule.
 - `validatePaths` — relative paths in frontmatter / body.
 - `applyRules(rules, frontmatter, body, filepath)` — the big one,
   consumes a full `validation_rules` object.
 
 Also owns the `CONFIG` object that exposes
-`contentFolders` / `excludePatterns` / `namingPatterns` / `slug` /
-`templateOnlyFields` via lazy getters tied to
-`loadVaultConfig()`.
+`contentFolders` / `excludePatterns` / `slug` / `templateOnlyFields`
+via lazy getters tied to `loadVaultConfig()`.
 
 ### `lib/body-parser.js`
 

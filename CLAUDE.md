@@ -3,7 +3,7 @@
 ## Generic plugin, template-driven validation
 
 > **This plugin is generic infrastructure, not a vault-specific implementation.**
-> The goal: any team can drop `claude-code-vault-keeper` into their own knowledge vault and have it work — without forking the plugin or patching its JS. Vault-shaped settings (content root, scanned folders, exclude globs, filename patterns) come from `.claude/vault-keeper.json`; with no config file the built-in defaults apply (whole repo is the vault).
+> The goal: any team can drop `claude-code-vault-keeper` into their own knowledge vault and have it work — without forking the plugin or patching its JS. Vault-shaped settings (content root, scanned folders, exclude globs) come from `.claude/vault-keeper.json`; per-template path shape, required fields, and lifecycle live in template frontmatter. With no config file the built-in defaults apply (whole repo is the vault).
 
 To preserve that property, two rules are non-negotiable:
 
@@ -31,7 +31,7 @@ This keeps the plugin reusable: any vault adopting `claude-code-vault-keeper` ju
 
 These fields are declared per-template under `validation_rules:` and enforced generically by `cli/validate-documents.js` + `lib/template-rules.js`:
 
-- `allowed_folders` — regex matched against document path
+- `path_regex` — regex matched against the document's repo-relative path
 - `sections[]` — body markdown section ordering vocabulary
 - `required_fields[]`, `optional_fields[]`, `conditional_required_fields[]` — frontmatter schema
 - `field_rules[]` — per-field regex/enum/type/numeric-bound rules
@@ -54,7 +54,7 @@ if (filepath.includes("/some-section/tasks/")) {
 # ✅ DO: declarative rule in the template
 # templates/task-template.md
 validation_rules:
-  allowed_folders: "^some-section/tasks/t-\\d{3}-[a-z0-9-]+\\.md$"
+  path_regex: "^some-section/tasks/t-\\d{3}-[a-z0-9-]+\\.md$"
 ```
 
 The plugin JS already knows how to compile and test the regex. It doesn't know — and shouldn't know — what `t-` means.

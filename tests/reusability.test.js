@@ -30,15 +30,15 @@ const VALIDATE = join(REPO, 'cli', 'validate-documents.js');
 
 let vault;
 
-// Minimal template with a validation_rules block: required `title`, an
-// allowed_folders regex, and the body Relationships section the engine knows.
+// Minimal template with a validation_rules block: required `title`, a
+// path_regex, and the body Relationships section the engine knows.
 const MINI_TEMPLATE = `---
 template_path: templates/note-template.md
 document_type: note
 validation_rules:
   tier: KNOWLEDGE
   required_fields: [template, document_type, title, owner]
-  allowed_folders: "^docs/notes/"
+  path_regex: "^docs/notes/"
 ---
 
 # Note Template

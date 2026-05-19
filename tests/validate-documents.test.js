@@ -16,7 +16,6 @@ import { fileURLToPath } from "node:url";
 import {
   validateTemplateField,
   validateTemplateMetaLeak,
-  validateNaming,
   validateSlug,
   suggestSlug,
   validatePaths,
@@ -115,85 +114,6 @@ describe("validateTemplateField", () => {
       "doc.md",
     );
     expect(issues).toEqual([]);
-  });
-});
-
-// ────────────────────────────────────────────────────────────────────────────
-// validateNaming
-// ────────────────────────────────────────────────────────────────────────────
-
-describe("validateNaming", () => {
-  test("valid PRD filename in PRDs folder → no issues", () => {
-    const path =
-      "product-knowledge/02-product/prds/2026-01-01-prd-001-coupon.md";
-    expect(validateNaming(path)).toEqual([]);
-  });
-
-  test("invalid filename in PRDs folder → error", () => {
-    const path = "product-knowledge/02-product/prds/coupon.md";
-    const issues = validateNaming(path);
-    expect(errorsOnly(issues)).toHaveLength(1);
-    expect(issues[0].field).toBe("filename");
-  });
-
-  test("valid ADR filename in engineering decisions folder → no issues", () => {
-    const path =
-      "product-knowledge/03-engineering/decisions/2026-01-01-adr-001-pick-bun.md";
-    expect(validateNaming(path)).toEqual([]);
-  });
-
-  test("invalid ADR filename → error", () => {
-    const path =
-      "product-knowledge/03-engineering/decisions/random-thoughts.md";
-    expect(errorsOnly(validateNaming(path))).toHaveLength(1);
-  });
-
-  test("valid DIBB filename → no issues", () => {
-    const path =
-      "product-knowledge/01-strategy/dibbs/2026-01-01-dibb-001-mobile.md";
-    expect(validateNaming(path)).toEqual([]);
-  });
-
-  test("valid PRD without date prefix → no issues (post-2026-05-13 convention)", () => {
-    // Date prefix made optional — `prd-NNN-<slug>` is the canonical form.
-    // Historical dated names still validate (see test above).
-    const path = "product-knowledge/02-product/prds/prd-005-coupon.md";
-    expect(validateNaming(path)).toEqual([]);
-  });
-
-  test("valid DIBB without date prefix → no issues (post-2026-05-13 convention)", () => {
-    const path = "product-knowledge/01-strategy/dibbs/dibb-002-growth.md";
-    expect(validateNaming(path)).toEqual([]);
-  });
-
-  test("user-story still requires date prefix → error without it", () => {
-    // Append-only historical artifacts (stories, ADRs, research) keep the
-    // date requirement — only PRD/DIBB dropped it.
-    const path =
-      "product-knowledge/02-product/user-stories/story-001-checkout.md";
-    expect(errorsOnly(validateNaming(path))).toHaveLength(1);
-  });
-
-  test("valid user-story filename → no issues", () => {
-    const path =
-      "product-knowledge/02-product/user-stories/2026-01-01-story-001-checkout.md";
-    expect(validateNaming(path)).toEqual([]);
-  });
-
-  test("valid research filename → no issues", () => {
-    const path =
-      "product-knowledge/01-strategy/research/2026-01-01-research-001-mobile.md";
-    expect(validateNaming(path)).toEqual([]);
-  });
-
-  test("file in folder with no naming pattern → no issues (skipped)", () => {
-    const path = "product-knowledge/04-operations/runbooks/anything.md";
-    expect(validateNaming(path)).toEqual([]);
-  });
-
-  test("README.md is always exempt from naming rules", () => {
-    const path = "product-knowledge/02-product/prds/README.md";
-    expect(validateNaming(path)).toEqual([]);
   });
 });
 
@@ -773,18 +693,6 @@ describe("CONFIG (canonical cross-cutting rules)", () => {
     expect(CONFIG.excludePatterns).toContain("**/README.md");
     expect(CONFIG.excludePatterns).toContain("**/.vitepress/**");
     expect(CONFIG.excludePatterns).toContain("**/node_modules/**");
-  });
-
-  test("naming pattern exists for each documented folder", () => {
-    expect(Object.keys(CONFIG.namingPatterns)).toEqual(
-      expect.arrayContaining([
-        "product-knowledge/01-strategy/dibbs",
-        "product-knowledge/02-product/prds",
-        "product-knowledge/02-product/user-stories",
-        "product-knowledge/03-engineering/decisions",
-        "product-knowledge/01-strategy/research",
-      ]),
-    );
   });
 
   test("no per-doc-type CONFIG remains (rules now live in templates)", () => {

@@ -26,7 +26,7 @@ and bypasses the `<projectRoot>/.claude/vault-keeper.json` lookup.
 
 ## Atoms
 
-The file is a JSON object with up to four atoms. Unspecified atoms fall
+The file is a JSON object with up to three atoms. Unspecified atoms fall
 back to the built-in defaults.
 
 ### `vaultRoot` (string)
@@ -70,33 +70,15 @@ based on the document's own `template:` field — see
 [templates/folder-and-naming](templates/folder-and-naming.md) for the
 bundle README mechanism.
 
-### `namingPatterns` (object — `string → regex source string`)
+## Where filename rules live
 
-Cross-cutting filename rules per folder. The key is a folder substring,
-the value is a regex source string (compiled to a `RegExp` at load time).
-Filenames in those folders must match the regex.
+Filename + folder-placement rules belong to **templates**, not to vault
+config. Each template self-declares a `path_regex` inside its own
+`validation_rules` block. The plugin matches the regex against every
+instance's repo-relative path.
 
-- **Default:** `{}` (no folder-level naming rules; templates may still
-  declare their own `allowed_folders` regex via `validation_rules`).
-- A vault opts in by declaring the map explicitly.
-
-Example:
-
-```json
-{
-  "namingPatterns": {
-    "docs/decisions": "^\\d{4}-\\d{2}-\\d{2}-adr-\\d{3}-[a-z0-9-]+\\.md$",
-    "docs/notes":     "^note-\\d{3}-[a-z0-9-]+\\.md$"
-  }
-}
-```
-
-A file under `docs/decisions/random-thought.md` would emit a `filename`
-error. A file under `docs/notes/note-001-hello.md` would pass.
-
-JSON has no regex literal — the values are strings. They're compiled once
-when the config is loaded; backslashes need JSON-escaping (`\\d` not
-`\d`).
+See [templates/folder-and-naming](templates/folder-and-naming.md#path_regex)
+for the regex authoring guide and bundle README pattern.
 
 ## Caching
 
@@ -126,7 +108,7 @@ the vault, you don't need a config file at all. The defaults work.
 
 This is what [`examples/minimal-vault/`](../examples/minimal-vault) ships.
 
-### Multi-section vault with naming rules
+### Multi-section vault with custom exclusions
 
 ```json
 {
@@ -137,13 +119,12 @@ This is what [`examples/minimal-vault/`](../examples/minimal-vault) ships.
     "**/CLAUDE.md",
     "**/node_modules/**",
     "**/_drafts/**"
-  ],
-  "namingPatterns": {
-    "knowledge/decisions": "^\\d{4}-\\d{2}-\\d{2}-adr-\\d{3}-[a-z0-9-]+\\.md$",
-    "knowledge/runbooks":  "^runbook-\\d{3}-[a-z0-9-]+\\.md$"
-  }
+  ]
 }
 ```
+
+Filename conventions for `knowledge/decisions/` and `knowledge/runbooks/`
+live inside each template's `path_regex`, not here.
 
 ### Vault rooted at the repo root (default)
 
@@ -159,7 +140,8 @@ intent shows up in the repo.
 
 ## See also
 
-- [Naming conventions](naming-conventions.md) — slug rules that apply on
-  top of `namingPatterns`.
+- [Naming conventions](naming-conventions.md) — the slug rule.
+- [Templates / Folder & filename rules](templates/folder-and-naming.md)
+  — template-declared `path_regex`.
 - [CLI validator](cli-validator.md) — `--root`, `--path` semantics.
 - [LSP features](lsp-features.md) — how `vaultFolders` gates the LSP.

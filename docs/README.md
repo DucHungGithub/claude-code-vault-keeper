@@ -11,7 +11,7 @@ own validation rules; the engine enforces them generically.
 - [Getting started](getting-started.md) — install Bun, install the plugin,
   initialize a vault, validate your first document, open it in an editor.
 - [Vault config](vault-config.md) — `.claude/vault-keeper.json` atoms
-  (`vaultRoot`, `vaultFolders`, `excludePatterns`, `namingPatterns`).
+  (`vaultRoot`, `vaultFolders`, `excludePatterns`).
 
 ### Authoring templates
 
@@ -21,7 +21,7 @@ own validation rules; the engine enforces them generically.
   `optional_fields`, `conditional_required_fields` (with DSL),
   `field_rules` (regex / values / type / min), `state_machine`.
 - [Folder & filename rules](templates/folder-and-naming.md) —
-  `allowed_folders`, naming conventions, slug rules.
+  `path_regex`, naming conventions, slug rules.
 - [Body rules](templates/body-rules.md) — `sections[]`, body section-rules
   code fences (`required: true`, format hints), `body_section_formats`.
 - [Full example](templates/full-example.md) — end-to-end template + a
@@ -34,6 +34,9 @@ own validation rules; the engine enforces them generically.
   `vault-keeper-validate` flags, exit codes, JSON output shape, examples.
 - [LSP features](lsp-features.md) — per-operation behavior (diagnostics,
   hover, code-lens, inlay-hint, completion, code-action, rename, format).
+- [Programmatic usage](programmatic-usage.md) — import the validator,
+  template loader, body parser, formatter as ES modules. Build custom
+  scripts, pre-commit hooks, reporters, editor integrations.
 - [CI/CD integration](ci-cd-integration.md) — GitHub Actions, GitLab CI,
   generic Bash runners, pre-commit hook, the `jq` artifact pattern.
 
@@ -45,7 +48,7 @@ own validation rules; the engine enforces them generically.
 - [Body parser](body-parser.md) — which body sections the parser
   understands, what it extracts, which warnings it emits.
 - [Naming conventions](naming-conventions.md) — slug rule for folders +
-  filenames, the namingPatterns map, exempt basenames.
+  filenames, exempt basenames.
 - [Architecture](architecture.md) — module map, data flow, extension
   points.
 - [Troubleshooting](troubleshooting.md) — common errors with concrete
@@ -58,7 +61,7 @@ A **vault** is a collection of markdown files under a configured
 template under `templates/`. The template's own frontmatter contains a
 `validation_rules:` block. The engine loads that block at runtime and
 enforces what it finds — required fields, regex, enums, state machine,
-allowed folders, body-section structure, etc. The plugin code knows
+path regex, body-section structure, etc. The plugin code knows
 nothing about your domain words; it only knows how to read template rules
 and apply them.
 

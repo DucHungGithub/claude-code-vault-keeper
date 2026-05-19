@@ -270,7 +270,7 @@ line.
 - [Frontmatter rules](frontmatter-rules.md) — `required_fields`,
   `field_rules`, state machine.
 - [Folder & filename rules](folder-and-naming.md) —
-  `allowed_folders`, slug rules.
+  `path_regex`, slug rules.
 - [Full example](full-example.md) — end-to-end template + instance.
 - [Body parser](../body-parser.md) — what the parser extracts +
   warnings.

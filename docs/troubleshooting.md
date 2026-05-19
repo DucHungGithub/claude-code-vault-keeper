@@ -211,29 +211,29 @@ lifecycle state to the document type.
 
 ## Folder / filename / slug
 
-### `[ERR] field=location — Document path "<path>" does not match template's allowed_folders regex`
+### `[ERR] field=location — Document path "<path>" does not match template's path_regex`
 
 **What:** The document's repo-relative path doesn't match the
-template's `allowed_folders` regex.
+template's `path_regex`.
 
 **Fix:** Either:
 
-1. **Move the file** to a path that matches the regex (the fix line
-   includes the regex pattern).
+1. **Move/rename the file** to a path that matches the regex (the fix
+   line includes the regex pattern).
 2. **Change the `template:` field** to a different template whose
-   `allowed_folders` accepts this path.
+   `path_regex` accepts this path.
 3. **Loosen the template's regex** if your folder taxonomy genuinely
    evolved.
 
 ---
 
-### `[ERR] field=template — Template's allowed_folders is not a valid regex`
+### `[ERR] field=template — Template's path_regex is not a valid regex`
 
-**What:** The `allowed_folders` string in your template doesn't
-compile to a valid `RegExp`.
+**What:** The `path_regex` string in your template doesn't compile to
+a valid `RegExp`.
 
 **Fix:** Inspect the regex source in the template's
-`validation_rules.allowed_folders`. Common gotchas:
+`validation_rules.path_regex`. Common gotchas:
 
 - Unescaped special characters: `(`, `)`, `[`, `]`, `+`, `*` need `\\`
   in YAML.
@@ -271,22 +271,13 @@ The LSP code-action quick-fix offers an automated rename via
 
 ---
 
-### `[ERR] field=filename — Invalid naming convention: <filename>`
-
-**What:** The file lives in a folder declared in
-`.claude/vault-keeper.json` `namingPatterns`, and its basename doesn't
-match the regex.
-
-**Fix:** Rename the file to match the namingPatterns regex. The
-expected pattern is in the message's fix line.
-
 ## Bundle README
 
 ### `[ERR] field=template — Bundle README has wrong template "<actual>". This path matches a content template's bundle pattern.`
 
 **What:** A `<id>/README.md` sits at a path that some template's
-`allowed_folders` regex matches as a bundle root, but the README's
-own `template:` field is missing or set to `folder-readme-template.md`.
+`path_regex` matches as a bundle root, but the README's own
+`template:` field is missing or set to `folder-readme-template.md`.
 The validator caught the mismatch.
 
 **Fix:** Set the README's `template:` field to one of the candidate

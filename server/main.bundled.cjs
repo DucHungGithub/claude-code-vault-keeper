@@ -20600,10 +20600,10 @@ var VFile = class {
    * @returns {undefined}
    *   Nothing.
    */
-  set basename(basename7) {
-    assertNonEmpty(basename7, "basename");
-    assertPart(basename7, "basename");
-    this.path = import_node_path.default.join(this.dirname || "", basename7);
+  set basename(basename6) {
+    assertNonEmpty(basename6, "basename");
+    assertPart(basename6, "basename");
+    this.path = import_node_path.default.join(this.dirname || "", basename6);
   }
   /**
    * Get the parent path (example: `'~'`).
@@ -32737,9 +32737,10 @@ async function loadTemplateRules(templatePath, projectRoot2 = process.cwd()) {
 function normalizeRules(rules, source = "inline") {
   const r = rules || {};
   return {
-    // Single regex string declared by the template; null when the template
-    // opts out (validator then skips the folder-placement check).
-    allowed_folders: typeof r.allowed_folders === "string" ? r.allowed_folders : null,
+    // Single regex string declared by the template; matched against the
+    // document's repo-relative POSIX path. Null when the template opts out
+    // (validator then skips the path check).
+    path_regex: typeof r.path_regex === "string" ? r.path_regex : null,
     // Body section format hints: format strings, examples, valid enums, table
     // headers. Consumed by body-parser to generate actionable warning messages.
     // Deep-copied so callers cannot mutate the template's canonical hints.
@@ -32922,15 +32923,13 @@ var DEFAULT_EXCLUDE_PATTERNS = [
   "**/.vitepress/**",
   "**/node_modules/**"
 ];
-var DEFAULT_NAMING_PATTERNS = {};
 var DEFAULTS = {
   // With no config file, the whole repo IS the vault — single-doc / flat-
   // layout vaults work without any setup. Multi-section vaults configure
   // explicit vaultFolders.
   vaultRoot: ".",
   vaultFolders: ["."],
-  excludePatterns: DEFAULT_EXCLUDE_PATTERNS,
-  namingPatterns: DEFAULT_NAMING_PATTERNS
+  excludePatterns: DEFAULT_EXCLUDE_PATTERNS
 };
 var ROOT_MARKERS = [".git", ".claude", "CLAUDE.md"];
 function resolveProjectRoot(opts = {}) {
@@ -32959,13 +32958,6 @@ function configPathFor(projectRoot2) {
   if (override && override.length > 0) return (0, import_node_path2.resolve)(override);
   return (0, import_node_path2.join)(projectRoot2, ".claude", "vault-keeper.json");
 }
-function compileNamingPatterns(raw) {
-  const out = {};
-  for (const [folder, val] of Object.entries(raw)) {
-    out[folder] = val instanceof RegExp ? val : new RegExp(val);
-  }
-  return out;
-}
 function loadVaultConfig(projectRoot2) {
   const root2 = projectRoot2 || resolveProjectRoot();
   const cfgPath = configPathFor(root2);
@@ -32981,14 +32973,10 @@ function loadVaultConfig(projectRoot2) {
   const merged = {
     vaultRoot: typeof fileConfig.vaultRoot === "string" && fileConfig.vaultRoot.length > 0 ? fileConfig.vaultRoot : DEFAULTS.vaultRoot,
     vaultFolders: Array.isArray(fileConfig.vaultFolders) && fileConfig.vaultFolders.length > 0 ? fileConfig.vaultFolders.slice() : DEFAULTS.vaultFolders.slice(),
-    excludePatterns: Array.isArray(fileConfig.excludePatterns) && fileConfig.excludePatterns.length > 0 ? fileConfig.excludePatterns.slice() : DEFAULTS.excludePatterns.slice(),
-    namingPatterns: compileNamingPatterns(
-      fileConfig.namingPatterns && typeof fileConfig.namingPatterns === "object" ? fileConfig.namingPatterns : DEFAULTS.namingPatterns
-    )
+    excludePatterns: Array.isArray(fileConfig.excludePatterns) && fileConfig.excludePatterns.length > 0 ? fileConfig.excludePatterns.slice() : DEFAULTS.excludePatterns.slice()
   };
   Object.freeze(merged.vaultFolders);
   Object.freeze(merged.excludePatterns);
-  Object.freeze(merged.namingPatterns);
   Object.freeze(merged);
   _cache.set(cfgPath, merged);
   return merged;
@@ -33002,14 +32990,6 @@ var CONFIG = {
   templateFolder: "templates",
   get excludePatterns() {
     return loadVaultConfig().excludePatterns;
-  },
-  // Naming patterns by folder. Filename rules are cross-cutting (a folder
-  // hosts many docs of one type) so they don't belong inside templates.
-  // Per-template filename conventions live in each template's
-  // `validation_rules.allowed_folders`; this folder→regex map remains LIVE
-  // for the cross-cutting prefix patterns (see validateNaming below).
-  get namingPatterns() {
-    return loadVaultConfig().namingPatterns;
   },
   // Frontmatter fields that belong to TEMPLATES only and must be stripped
   // when they leak into derived instances via copy-paste authoring.
@@ -33317,32 +33297,6 @@ function validateSlug(filepath) {
   }
   return issues;
 }
-function validateNaming(filepath) {
-  const issues = [];
-  const filename = (0, import_path3.basename)(filepath);
-  if (filename === "README.md") return issues;
-  for (const [folder] of Object.entries(CONFIG.namingPatterns)) {
-    const folderWithSep = folder.endsWith("/") ? folder : `${folder}/`;
-    const idx = filepath.indexOf(folderWithSep);
-    if (idx === -1) continue;
-    const rest = filepath.slice(idx + folderWithSep.length);
-    if (rest.includes("/")) return issues;
-  }
-  for (const [folder, pattern] of Object.entries(CONFIG.namingPatterns)) {
-    if (filepath.includes(folder)) {
-      if (!pattern.test(filename)) {
-        issues.push({
-          level: "error",
-          field: "filename",
-          message: `Invalid naming convention: ${filename}`,
-          fix: `Follow pattern: YYYY-MM-DD-type-NNN-description.md`
-        });
-      }
-      break;
-    }
-  }
-  return issues;
-}
 function stripCodeRegions(text5) {
   if (typeof text5 !== "string") return "";
   return text5.replace(/```[\s\S]*?```/g, "").replace(/~~~[\s\S]*?~~~/g, "").replace(/`[^`\n]*`/g, "").replace(/^( {4,}|\t)[^\n]*$/gm, "");
@@ -33490,7 +33444,6 @@ async function validateBuffer({ text: text5, filepath, projectRoot: projectRoot2
   const issues = [];
   issues.push(...validateTemplateField(fm, filepath));
   issues.push(...validateTemplateMetaLeak(fm, filepath));
-  issues.push(...validateNaming(filepath));
   issues.push(...validateSlug(filepath));
   issues.push(...validatePaths(fm, body));
   let rules = null;

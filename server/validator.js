@@ -18,7 +18,6 @@ import { loadTemplateRules } from "../lib/template-rules.js";
 import {
   validateTemplateField,
   validateTemplateMetaLeak,
-  validateNaming,
   validateSlug,
   validatePaths,
   applyRules,
@@ -83,7 +82,6 @@ export async function validateBuffer({ text, filepath, projectRoot }) {
   // ── Per-doc cross-cutting validators (no FS scan) ─────────────────────────
   issues.push(...validateTemplateField(fm, filepath));
   issues.push(...validateTemplateMetaLeak(fm, filepath));
-  issues.push(...validateNaming(filepath));
   issues.push(...validateSlug(filepath));
   issues.push(...validatePaths(fm, body));
 

@@ -607,7 +607,7 @@ function uriToRepoPath(uri, root) {
   const abs = fileURLToPath(uri);
   const rel = relative(root, abs);
   if (!rel || rel.startsWith("..")) return null;
-  // Normalize to POSIX — validateNaming / validateSlug regex against `/`.
+  // Normalize to POSIX — validateSlug regex against `/`.
   return rel.split(sep).join("/");
 }
 

@@ -315,10 +315,22 @@ updated: "2026-01-01"`),
     expect(result.errors.map((e) => e.field)).toContain("rice_score");
   });
 
-  test("PRD with bad filename → naming error (cross-cutting, template-independent)", async () => {
+  test("PRD with bad filename → path_regex error (template-declared path shape)", async () => {
+    writeDoc(
+      "templates/prd-template.md",
+      `---
+template_id: prd
+validation_rules:
+  required_fields: [template, status]
+  path_regex: "^product-knowledge/02-product/prds/(?:\\\\d{4}-\\\\d{2}-\\\\d{2}-)?prd-\\\\d{3}-[a-z0-9-]+\\\\.md$"
+---
+body
+`,
+    );
+
     const prdPath = writeDoc(
       "product-knowledge/02-product/prds/random-name.md",
-      md(`template: templates/prd.md
+      md(`template: templates/prd-template.md
 status: draft
 owner: Duoc
 created: "2026-01-01"
@@ -327,7 +339,9 @@ updated: "2026-01-01"`),
 
     const result = await validateDocument(prdPath);
     expect(result.valid).toBe(false);
-    expect(result.errors.map((e) => e.field)).toContain("filename");
+    expect(result.errors.map((e) => e.field)).toContain("location");
+    const locationErr = result.errors.find((e) => e.field === "location");
+    expect(locationErr.error_type).toBe("path-regex-mismatch");
   });
 
   test("PRD with unquoted YAML date (parsed as Date) is accepted by field_rules.regex", async () => {

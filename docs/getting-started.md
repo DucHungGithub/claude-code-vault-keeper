@@ -95,7 +95,7 @@ validation_rules:
   field_rules:
     - field: status
       values: [draft, review, approved]
-  allowed_folders: "^notes/"
+  path_regex: "^notes/"
 ---
 
 # Note template

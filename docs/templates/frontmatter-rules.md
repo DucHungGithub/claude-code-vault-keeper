@@ -335,7 +335,7 @@ on unknown).
 
 ## See also
 
-- [Folder & filename rules](folder-and-naming.md) — `allowed_folders`,
+- [Folder & filename rules](folder-and-naming.md) — `path_regex`,
   naming conventions.
 - [Body rules](body-rules.md) — `sections[]`, body section-rules code
   fences.

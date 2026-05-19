@@ -77,7 +77,7 @@ validation_rules:
     approved: [shipped, draft]
     shipped:  []
     dropped:  []
-  allowed_folders: "^docs/prds/prd-\\d{3}-[a-z0-9-]+\\.md$"
+  path_regex: "^docs/prds/prd-\\d{3}-[a-z0-9-]+\\.md$"
   sections:
     - problem
     - goals
@@ -135,7 +135,7 @@ example: "- [DIBB-001](../strategy/dibbs/dibb-001.md) — *bets on growth*"
 ````
 
 This template declares **all five** rule kinds (required, conditional,
-field, state machine, allowed_folders) plus body section-rules + an
+field, state machine, path_regex) plus body section-rules + an
 explicit `sections[]` ordering.
 
 ## A conforming instance
@@ -201,7 +201,7 @@ This passes every rule:
 | `field_rules.values` (`status`) | ✅ `approved` is permitted |
 | `field_rules.type integer` + `min` (`rice.reach`, `rice.confidence`) | ✅ both ≥ 1 |
 | `state_machine` (`approved`) | ✅ declared node |
-| `allowed_folders` | ✅ matches `prd-001-checkout-redesign.md` |
+| `path_regex` | ✅ matches `prd-001-checkout-redesign.md` |
 | Body section-rules (`required: true` on `## Problem`, `## Goals`, `## Acceptance Criteria`) | ✅ all H2s present |
 
 Expected validator output:

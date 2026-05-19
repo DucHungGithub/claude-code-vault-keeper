@@ -54,8 +54,6 @@ What runs:
   `templates/`, ends with `.md`).
 - `validateTemplateMetaLeak` — flags `validation_rules` / `template_id` /
   `template_version` keys that leaked from a template into an instance.
-- `validateNaming` — folder-level naming pattern (from
-  `.claude/vault-keeper.json` `namingPatterns`).
 - `validateSlug` — every folder segment + filename must be
   lowercase-kebab-case (see [naming-conventions](naming-conventions.md)).
 - `validatePaths` — relative paths (`./foo.md`, `../bar.md`) in

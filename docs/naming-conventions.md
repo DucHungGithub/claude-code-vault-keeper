@@ -6,11 +6,10 @@ Two independent surfaces enforce filename rules:
    must be lowercase-kebab-case. Enforced uniformly across `.md` and
    asset files. Hardcoded in plugin code (it's pure infrastructure
    that can't be expressed as a template rule).
-2. **`namingPatterns`** — per-folder filename regexes declared in
-   `.claude/vault-keeper.json`. Optional, vault-specific.
-
-For folder placement enforced by individual templates, see
-[templates/folder-and-naming](templates/folder-and-naming.md#allowed_folders).
+2. **Template `path_regex`** — each template declares the regex that
+   its instance paths must match. Lives inside the template's
+   `validation_rules` block; see
+   [templates/folder-and-naming](templates/folder-and-naming.md#path_regex).
 
 ## The slug rule
 
@@ -149,42 +148,6 @@ Twice in the CLI:
 The LSP runs the markdown branch on every keystroke; asset slugs are
 CLI-only.
 
-## `namingPatterns` (vault config)
-
-Per-folder filename regexes declared in `.claude/vault-keeper.json`:
-
-```json
-{
-  "namingPatterns": {
-    "docs/decisions": "^\\d{4}-\\d{2}-\\d{2}-adr-\\d{3}-[a-z0-9-]+\\.md$",
-    "docs/notes":     "^note-\\d{3}-[a-z0-9-]+\\.md$"
-  }
-}
-```
-
-### Matching
-
-For each entry, the validator checks whether the document path
-**contains** the folder key. If yes, the regex is tested against the
-basename. Files **nested deeper** than the folder root (i.e. with
-intermediate path segments between the folder and the file) are
-exempted — they live inside a bundle or sub-folder and follow that
-template's own `allowed_folders`.
-
-`README.md` is always exempt from `namingPatterns` (it's the universal
-folder-meta name).
-
-### `namingPatterns` vs template `allowed_folders`
-
-| When to use | Rule kind |
-|---|---|
-| One template, one filename convention | Template `validation_rules.allowed_folders` |
-| One folder, multiple templates sharing one filename convention | Vault `namingPatterns` |
-
-In a vault where one folder hosts only one template type, prefer
-template-level `allowed_folders` — keeps the rule co-located with the
-template that requires it.
-
 ## Putting it together
 
 Example vault layout:
@@ -196,33 +159,22 @@ docs/
 │   ├── note-002-second.md           ✅
 │   └── Random Thoughts.md           ❌ slug rule fails
 ├── decisions/
-│   ├── 2026-05-12-adr-007-foo.md    ✅
-│   └── random.md                    ❌ namingPatterns fails (no date prefix)
+│   ├── 2026-05-12-adr-007-foo.md    ✅ (matches the adr template path_regex)
+│   └── random.md                    ❌ template's path_regex fails (no date prefix)
 ├── images/
 │   ├── login-screen.png             ✅
 │   └── LoginScreen.png              ❌ slug rule fails (asset slug pass)
 └── README.md                        ✅ exempt basename
 ```
 
-Configuration:
-
-```json
-{
-  "vaultRoot": "docs",
-  "vaultFolders": ["docs"],
-  "namingPatterns": {
-    "docs/decisions": "^\\d{4}-\\d{2}-\\d{2}-adr-\\d{3}-[a-z0-9-]+\\.md$"
-  }
-}
-```
-
 The slug rule fires on `Random Thoughts.md` and `LoginScreen.png`
-unconditionally. `namingPatterns` fires on `decisions/random.md`
-because the regex requires the date prefix.
+unconditionally. The template-declared `path_regex` for the ADR
+template fires on `decisions/random.md`.
 
 ## See also
 
-- [Vault config](vault-config.md) — `namingPatterns` syntax + caching.
+- [Vault config](vault-config.md) — config atoms (`vaultRoot`,
+  `vaultFolders`, `excludePatterns`).
 - [Templates / Folder & filename rules](templates/folder-and-naming.md)
-  — template-declared `allowed_folders`.
+  — template-declared `path_regex`.
 - [CLI validator](cli-validator.md) — how the asset slug pass runs.

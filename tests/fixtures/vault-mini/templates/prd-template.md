@@ -8,7 +8,7 @@ validation_rules:
       regex: "^\\d{4}-\\d{2}-\\d{2}$"
     - field: status
       values: [draft, review, approved, shipped, deprecated]
-  allowed_folders: "^product-knowledge/02-product/prds/(?:\\d{4}-\\d{2}-\\d{2}-)?prd-\\d{3}-[a-z0-9-]+\\.md$"
+  path_regex: "^product-knowledge/02-product/prds/(?:\\d{4}-\\d{2}-\\d{2}-)?prd-\\d{3}-[a-z0-9-]+\\.md$"
   conditional_required_fields:
     - condition: "prd_type in ['feature', 'enhancement']"
       field: "body_section:## Ship Timeline"

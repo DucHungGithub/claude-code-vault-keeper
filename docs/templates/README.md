@@ -19,7 +19,7 @@ validation_rules:                                  # 3. the rule block
   field_rules:
     - field: status
       values: [draft, review, approved]
-  allowed_folders: "^docs/notes/"
+  path_regex: "^docs/notes/"
   sections: [problem, solution, "*"]
   state_machine:
     draft: [review]
@@ -70,7 +70,7 @@ error — `Cannot load validation_rules from template '<path>' …`.
 | `conditional_required_fields` | `object[]` | Required only when a DSL condition matches | [frontmatter-rules](frontmatter-rules.md) |
 | `field_rules` | `object[]` | Per-field `regex` / `values` / `type` / `min` | [frontmatter-rules](frontmatter-rules.md) |
 | `state_machine` | `object` | `state: [allowed-next-states]` graph; warns on unknown status | [frontmatter-rules](frontmatter-rules.md) |
-| `allowed_folders` | `string` (regex) | Document path must match this regex | [folder-and-naming](folder-and-naming.md) |
+| `path_regex` | `string` (regex) | Document repo-relative path must match this regex | [folder-and-naming](folder-and-naming.md) |
 | `sections` | `string[]` | Body H2 section ordering (used by the canonical formatter) | [body-rules](body-rules.md) |
 | `body_section_formats` | `object` | Per-section format hints fed to the body parser | [body-rules](body-rules.md) |
 | `tier` | `string` | Optional grouping label — read by LSP completion for proximity sort | — |
@@ -111,7 +111,7 @@ the agent / human authoring the instance.
 
 1. [Frontmatter rules](frontmatter-rules.md) — required fields, regex,
    enums, conditional rules with DSL, state machine.
-2. [Folder & filename rules](folder-and-naming.md) — `allowed_folders`,
+2. [Folder & filename rules](folder-and-naming.md) — `path_regex`,
    bundle README detection, naming conventions.
 3. [Body rules](body-rules.md) — `sections[]`, section-rules code
    fences, format hints for the body parser.

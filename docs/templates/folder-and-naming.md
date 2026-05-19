@@ -3,24 +3,22 @@
 This page covers the rules that govern **where a document lives** and
 **what it's named**:
 
-- [`allowed_folders`](#allowed_folders) — template-declared path regex.
+- [`path_regex`](#path_regex) — template-declared path regex.
 - [Bundle README pattern](#bundle-readme-pattern) — when a folder's
   `README.md` is the canonical document for that folder.
 - [Slug rule](#slug-rule) — every folder segment + filename must be
   lowercase-kebab-case.
-- [`namingPatterns`](#namingpatterns-from-vault-config) — vault-level
-  folder→regex map for cross-cutting filename conventions.
 
 ---
 
-## `allowed_folders`
+## `path_regex`
 
-Each template self-declares the path regex that an instance must match.
-Declared inside the template's `validation_rules` block.
+Each template self-declares the regex that an instance's path must
+match. Declared inside the template's `validation_rules` block.
 
 ```yaml
 validation_rules:
-  allowed_folders: "^docs/notes/note-\\d{3}-[a-z0-9-]+\\.md$"
+  path_regex: "^docs/notes/note-\\d{3}-[a-z0-9-]+\\.md$"
 ```
 
 The validator compiles the source string with `new RegExp()` and tests
@@ -39,7 +37,7 @@ Use regex alternation. Common pattern: support both flat files and
 bundle README form:
 
 ```yaml
-allowed_folders: >-
+path_regex: >-
   ^docs/notes/note-\\d{3}-[a-z0-9-]+\\.md$|
   ^docs/notes/note-\\d{3}-[a-z0-9-]+/README\\.md$
 ```
@@ -51,15 +49,15 @@ whitespace inside the regex source.
 ### What fires on mismatch
 
 ```
-[ERR ] field=location  error_type=folder-placement
+[ERR ] field=location  error_type=path-regex-mismatch
        Document path "docs/random/note-001-foo.md" does not match
-       template's allowed_folders regex.
-       fix: Move the file to a folder matching: ^docs/notes/note-\d{3}-...
+       template's path_regex.
+       fix: Move/rename the file to match: ^docs/notes/note-\d{3}-...
 ```
 
-A `null` / absent `allowed_folders` skips the check — useful for
-templates whose instances may live anywhere (e.g. a generic note that
-spans multiple sections).
+A `null` / absent `path_regex` skips the check — useful for templates
+whose instances may live anywhere (e.g. a generic note that spans
+multiple sections).
 
 ### Bad regex → actionable error
 
@@ -67,9 +65,9 @@ If the regex source doesn't compile, the validator emits one error
 pointing at the template (not the instance):
 
 ```
-[ERR ] field=template  error_type=allowed-folders-bad-regex
-       Template's allowed_folders is not a valid regex: <RegExp error>
-       fix: Fix the regex in the template's validation_rules.allowed_folders.
+[ERR ] field=template  error_type=path-regex-bad-regex
+       Template's path_regex is not a valid regex: <RegExp error>
+       fix: Fix the regex in the template's validation_rules.path_regex.
 ```
 
 ---
@@ -95,9 +93,9 @@ The CLI orchestrator runs an extra glob pass that re-includes every
 no hardcoded path lists.
 
 If a `README.md` sits at a path that some content template's
-`allowed_folders` regex matches as a bundle root, but the doc's own
-`template:` field is missing or set to `folder-readme-template.md`, the
-validator synthesises a specific error:
+`path_regex` matches as a bundle root, but the doc's own `template:`
+field is missing or set to `folder-readme-template.md`, the validator
+synthesises a specific error:
 
 ```
 [ERR ] field=template  error_type=bundle-readme-template-mismatch
@@ -112,12 +110,12 @@ This prevents silent skips on bundle conversions (e.g.
 
 ### Authoring a bundle-capable template
 
-Author the `allowed_folders` regex with a `/README\.md$` alternative
-that participates in the bundle scan:
+Author the `path_regex` with a `/README\.md$` alternative that
+participates in the bundle scan:
 
 ```yaml
 validation_rules:
-  allowed_folders: >-
+  path_regex: >-
     ^docs/prds/prd-\\d{3}-[a-z0-9-]+\\.md$|
     ^docs/prds/prd-\\d{3}-[a-z0-9-]+/README\\.md$
 ```
@@ -198,53 +196,6 @@ characters, collapse `--`.
 
 ---
 
-## `namingPatterns` (from vault config)
-
-Cross-cutting filename rules per folder, declared in
-`.claude/vault-keeper.json`:
-
-```json
-{
-  "namingPatterns": {
-    "docs/decisions": "^\\d{4}-\\d{2}-\\d{2}-adr-\\d{3}-[a-z0-9-]+\\.md$",
-    "docs/notes":     "^note-\\d{3}-[a-z0-9-]+\\.md$"
-  }
-}
-```
-
-The key is a folder substring; the value is a regex source string
-(compiled to a `RegExp` at config load time).
-
-### How matching works
-
-For each entry the validator checks if the document's path **contains**
-the folder key. If yes, the regex is tested against the basename.
-
-- Files **nested deeper than the folder root** (i.e. with intermediate
-  path segments between the folder and the file) are **exempted**.
-  Rationale: those files live inside a bundle (or a bundle's discipline
-  sub-folder) and follow the template's own `allowed_folders` regex,
-  not the parent folder's flat-file prefix pattern.
-- `README.md` is always exempt (it's the universal folder-meta name; a
-  bundle README's naming comes from its parent folder's slug + template
-  regex).
-
-### When to use namingPatterns vs template `allowed_folders`
-
-| Concern | Where to declare |
-|---|---|
-| **One template's filename shape** | Template `validation_rules.allowed_folders` |
-| **A folder hosting one type of doc with one filename convention** | Either — both work |
-| **A folder hosting several templates, all sharing one filename prefix** | Vault `namingPatterns` |
-
-In a vault where one folder hosts only one template type, prefer the
-template's `allowed_folders` — it keeps the rule co-located with the
-template that requires it. Use `namingPatterns` for cross-cutting rules
-that span multiple templates in the same folder (e.g. "everything under
-`decisions/` is dated, regardless of template").
-
----
-
 ## A complete example
 
 Template:
@@ -255,7 +206,7 @@ template_path: templates/note-template.md
 document_type: note
 validation_rules:
   required_fields: [template, document_type, title, owner]
-  allowed_folders: "^docs/notes/note-\\d{3}-[a-z0-9-]+\\.md$"
+  path_regex: "^docs/notes/note-\\d{3}-[a-z0-9-]+\\.md$"
 ---
 ```
 
@@ -264,20 +215,15 @@ Vault config:
 ```json
 {
   "vaultRoot": "docs",
-  "vaultFolders": ["docs"],
-  "namingPatterns": {
-    "docs/decisions": "^\\d{4}-\\d{2}-\\d{2}-adr-\\d{3}-[a-z0-9-]+\\.md$"
-  }
+  "vaultFolders": ["docs"]
 }
 ```
 
 | Path | Result |
 |---|---|
 | `docs/notes/note-001-foo.md` | ✅ matches both template + slug rule |
-| `docs/notes/foo.md` | ❌ `allowed_folders` fails (no `note-NNN-` prefix) |
+| `docs/notes/foo.md` | ❌ `path_regex` fails (no `note-NNN-` prefix) |
 | `docs/notes/Note-001.md` | ❌ slug rule fails (uppercase) |
-| `docs/decisions/random-thought.md` | ❌ `namingPatterns` fails (no date prefix) |
-| `docs/decisions/2026-05-12-adr-007-foo.md` | ✅ |
 
 ## See also
 
@@ -286,4 +232,5 @@ Vault config:
 - [Body rules](body-rules.md) — body section-rules, section ordering.
 - [Naming conventions](../naming-conventions.md) — the slug rule in
   isolation, with exempt-basename rationale.
-- [Vault config](../vault-config.md) — `namingPatterns` syntax.
+- [Vault config](../vault-config.md) — config atoms (`vaultRoot`,
+  `vaultFolders`, `excludePatterns`).
