@@ -1,54 +1,53 @@
 # Getting started
 
-End-to-end walkthrough: install the plugin, set up a minimal vault, write a
-template, validate a conforming document.
+End-to-end walkthrough: install the CLI, set up a vault, write a template,
+validate a conforming document. Editor-side diagnostics via Claude Code are
+covered at the end.
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) — the validator's runtime (the CLI shebang is
-  `#!/usr/bin/env bun`).
-- [Claude Code](https://github.com/anthropics/claude-code) — required if
-  you want editor-side diagnostics. Skip if you only need the CLI
-  validator.
+- **Node.js** ≥ 18 — required by the CLI runtime.
+- *Optional:* **[Bun](https://bun.sh)** — `bunx` makes the one-shot run
+  below faster and avoids touching your npm cache.
+- *Optional:* **[Claude Code](https://github.com/anthropics/claude-code)** —
+  required only if you want editor-side LSP diagnostics. The CLI works
+  standalone.
 
-## Install
+## Pick an installation style
 
-The plugin is distributed via the Claude Code plugin system. Two paths:
+| Style | Use when | Command |
+|---|---|---|
+| **One-shot** (no install) | You want to validate a vault once — CI step, ad-hoc check, evaluating the tool. | `bunx claude-code-vault-keeper@latest --root <vault>` *(or `npx claude-code-vault-keeper@latest --root <vault>`)* |
+| **Project dev-dep** | The vault lives inside an existing JS/TS repo and CI runs `npm`/`bun` already. | `bun add -D claude-code-vault-keeper` *(or `npm i -D claude-code-vault-keeper`)*, then `bunx vault-keeper-validate …` |
+| **Global** | You author multiple vaults across machines and want `vault-keeper-validate` in `$PATH`. | `bun add -g claude-code-vault-keeper` *(or `npm i -g claude-code-vault-keeper`)* |
+| **Claude Code plugin** | You want LSP diagnostics inline as you type. | `claude marketplace add https://github.com/nguyenvanduocit/claude-code-vault-keeper.git` then `claude plugin install claude-code-vault-keeper@vault-keeper` |
 
-### A. Install from a marketplace
-
-```bash
-claude marketplace add <this-repo-url-or-path>
-claude plugin install claude-code-vault-keeper@vault-keeper
-```
-
-`.claude-plugin/marketplace.json` exposes a single plugin with
-`source: "."`. The LSP server (`server/main.bundled.cjs`) ships pre-built
-and self-contained — editor diagnostics need no `bun install`.
-
-### B. Clone for CLI use only
-
-```bash
-git clone <this-repo-url> claude-code-vault-keeper
-cd claude-code-vault-keeper
-bun install         # populates runtime deps for the CLI validator
-```
+You do **not** need to `git clone` the repo to use the validator. Cloning
+is only for contributing — see [Architecture](architecture.md#repo-layout).
 
 ## Verify the install
 
-The bundled example vault under `examples/example/` is a runnable reference
-that doubles as the plugin's test dataset. It contains both VALID and
-deliberately INVALID instances (suffixed `-invalid.md`) so every rule the
-validator enforces has a fixture. From this plugin's root:
+The runnable example vault ships inside the npm package, so you can drive
+the CLI against it directly with `bunx`:
 
 ```bash
-bun cli/validate-documents.js --root examples/example --json
+bunx claude-code-vault-keeper@latest \
+  --root "$(bun pm bin -g)/../lib/node_modules/claude-code-vault-keeper/examples/example"
 ```
 
-Expected output: a single JSON document whose `summary.invalid` is greater
-than zero (the invalid fixtures fire on purpose) and an exit code of `1`.
-The matching `tests/example-vault.expectations.json` lists exactly which
-diagnostic each fixture should emit.
+If you'd rather see the example without installing globally, clone the
+repo or browse it on GitHub:
+<https://github.com/nguyenvanduocit/claude-code-vault-keeper/tree/main/examples/example>.
+
+The simplest sanity check on your own machine is to validate the current
+directory (the validator treats a repo with no config as a single vault):
+
+```bash
+cd /tmp && mkdir vk-smoke && cd vk-smoke
+echo '# Hello' > hello.md
+bunx claude-code-vault-keeper@latest --root .
+# → exit 0, "No documents found" or "Valid: 0/0 (no content documents)"
+```
 
 ## Set up your own vault
 
@@ -88,7 +87,7 @@ are excluded (`node_modules`, `.vitepress`, `README.md`, `CLAUDE.md`,
 
 ### Step 3 — write a template
 
-```bash
+````bash
 cat > templates/note-template.md <<'EOF'
 ---
 template_path: templates/note-template.md
@@ -113,10 +112,10 @@ relationships:
   required: false
 ```
 EOF
-```
+````
 
 See [templates/frontmatter-rules](templates/frontmatter-rules.md) for the
-full validation_rules vocabulary.
+full `validation_rules` vocabulary.
 
 ### Step 4 — write a conforming document
 
@@ -140,21 +139,29 @@ EOF
 
 ### Step 5 — validate
 
+From the vault directory:
+
 ```bash
-# From the plugin directory, point --root at your vault
-bun /path/to/claude-code-vault-keeper/cli/validate-documents.js \
-  --root /path/to/my-vault
+bunx claude-code-vault-keeper@latest --root .
+# or, if installed locally / globally:
+vault-keeper-validate --root .
 ```
 
-You should see `Valid: 1/1` and exit code `0`. Try removing the `owner:`
-line — the validator will exit `1` and tell you which field is missing
-and how to fix it.
+Expected: `Valid: 1/1`, exit code `0`. Try removing the `owner:` line —
+the validator will exit `1` and tell you which field is missing plus how
+to fix it.
+
+For JSON-formatted output (the form CI consumes):
+
+```bash
+bunx claude-code-vault-keeper@latest --root . --json
+```
 
 ### Step 6 — open in an editor with the LSP
 
-If you installed via the Claude Code marketplace path (option A above),
-the LSP is already wired up. Open any `.md` file in your vault and you'll
-see diagnostics inline as you type.
+If you installed via Claude Code (the marketplace path above), the LSP is
+already wired up. Open any `.md` file in your vault and diagnostics show
+inline as you type.
 
 The LSP recognizes a directory as a vault root when it contains either a
 `templates/` directory or a `.claude/vault-keeper.json` file. Both are
@@ -164,7 +171,12 @@ For a deeper editor walkthrough see [lsp-features](lsp-features.md).
 
 ## What to read next
 
-- Your templates are the configuration surface — read
+- Your templates ARE the configuration surface — read
   [templates/README](templates/README.md) for the full vocabulary.
 - For CI gating see [ci-cd-integration](ci-cd-integration.md).
 - Stuck on an error? Check [troubleshooting](troubleshooting.md).
+- Browse the bundled `examples/example/` for a working vault that
+  exercises every rule kind — both the
+  [README map](https://github.com/nguyenvanduocit/claude-code-vault-keeper/blob/main/examples/example/README.md)
+  and [`tests/example-vault.expectations.json`](https://github.com/nguyenvanduocit/claude-code-vault-keeper/blob/main/tests/example-vault.expectations.json)
+  enumerate every fixture and the diagnostic it demonstrates.

@@ -1,13 +1,26 @@
 {
   "name": "claude-code-vault-keeper",
-  "version": "0.4.0",
-  "private": true,
+  "version": "0.5.0",
   "type": "module",
-  "description": "Generic knowledge-vault tooling for Claude Code — LSP server (server/main.bundled.cjs) and CLI validator (cli/validate-documents.js, exposed as the `vault-keeper-validate` bin). Templates own the rules via `validation_rules` frontmatter; the plugin is vault-agnostic. Config-driven via `.claude/vault-keeper.json`; pre-built LSP bundle ships so cloners need no install for editor diagnostics.",
+  "description": "Template-driven validation for any markdown knowledge-vault. Ships an LSP server (per-keystroke diagnostics, navigation, hover, completion) and a CLI validator (vault-keeper-validate). Templates own the rules via `validation_rules` frontmatter; the plugin is vault-agnostic. Config-driven via .claude/vault-keeper.json. Pre-built LSP bundle, no install required for editor diagnostics.",
   "main": "server/main.bundled.cjs",
   "bin": {
     "vault-keeper-validate": "cli/validate-documents.js"
   },
+  "files": [
+    "cli/",
+    "server/main.bundled.cjs",
+    "server/main.js",
+    "server/smoke.js",
+    "lib/",
+    "examples/",
+    "monitors/",
+    ".claude-plugin/",
+    ".lsp.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "node server/main.bundled.cjs --stdio",
     "build": "esbuild server/main.js --bundle --platform=node --format=cjs --outfile=server/main.bundled.cjs",
@@ -15,11 +28,43 @@
     "smoke:server": "node server/smoke.js",
     "smoke:example": "node examples/example/smoke.js",
     "smoke:source": "SMOKE_TARGET=source node server/smoke.js && node examples/example/smoke.js",
-    "validate": "bun cli/validate-documents.js",
-    "validate:strict": "bun cli/validate-documents.js --strict",
-    "validate:json": "bun cli/validate-documents.js --json",
-    "test": "bun test ./tests"
+    "validate": "node cli/validate-documents.js",
+    "validate:strict": "node cli/validate-documents.js --strict",
+    "validate:json": "node cli/validate-documents.js --json",
+    "test": "bun test ./tests",
+    "prepublishOnly": "npm run build && bun test ./tests"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "nguyenvanduocit",
+    "email": "nguyenvanduocit@gmail.com",
+    "url": "https://github.com/nguyenvanduocit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nguyenvanduocit/claude-code-vault-keeper.git"
+  },
+  "homepage": "https://github.com/nguyenvanduocit/claude-code-vault-keeper#readme",
+  "bugs": {
+    "url": "https://github.com/nguyenvanduocit/claude-code-vault-keeper/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "claude-code-plugin",
+    "lsp",
+    "language-server",
+    "markdown",
+    "knowledge-base",
+    "vault",
+    "template",
+    "validation",
+    "frontmatter",
+    "cli",
+    "obsidian"
+  ],
   "dependencies": {
     "glob": "^10.3.10",
     "gray-matter": "^4.0.3",
