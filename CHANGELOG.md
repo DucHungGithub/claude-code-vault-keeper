@@ -4,6 +4,55 @@ All notable changes to `claude-code-vault-keeper` are tracked here. The
 format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] — 2026-05-19
+
+Adds a multi-command CLI surface — `vault-keeper <subcommand>` — without
+breaking the existing `vault-keeper-validate` bin. The new dispatcher is
+the primary install path going forward; the validate-only bin is kept as
+an alias for backwards compatibility.
+
+### Added
+
+- **New bin `vault-keeper`** (entry: `cli/main.js`). Subcommands:
+  - `validate [--root … --path … --strict --json]` — delegates to the
+    existing validator without spawning a subprocess (in-process import).
+  - `doctor [--json]` — health-check: Node version, bun runtime, claude
+    CLI, LSP bundle, cwd vault config, cwd `templates/` dir. Returns a
+    structured report or human-readable checklist. Exit 1 on any error.
+  - `install-claude-code-plugin` — wraps `claude marketplace add` +
+    `claude plugin install`. Prints manual steps when `claude` is absent
+    rather than failing silently.
+  - `init [<dir>] [--force]` — scaffolds a minimal vault skeleton
+    (`.claude/vault-keeper.json`, `templates/note-template.md`,
+    `notes/note-001-hello.md`). Refuses to clobber a non-empty target
+    without `--force`. Sample doc validates clean immediately.
+  - `help [<command>]`, `--version` / `-v`, `--help` / `-h`.
+- **`tests/cli-main.test.js`** — 10 end-to-end tests for the new CLI
+  (help/version, doctor JSON, init scaffolding, init + validate round
+  trip, validate sub matches direct-invocation output, unknown command
+  exits 1).
+
+### Changed
+
+- **`cli/validate-documents.js`**: `main` now accepts an optional `argv`
+  parameter (default `process.argv.slice(2)`) so the multi-tool can
+  dispatch into it. `main` is now exported. Entry guard replaced with a
+  portable `import.meta.url === pathToFileURL(process.argv[1]).href`
+  check so direct invocation works under any ESM runtime.
+- **`package.json`**: `bin` now declares both `vault-keeper` and
+  `vault-keeper-validate`; description updated to mention subcommands;
+  version bumped 0.5.0 → 0.6.0.
+- **`.claude-plugin/plugin.json`**: version bumped to 0.6.0.
+- **README + `docs/getting-started.md`** rewritten around the multi-tool
+  surface. Subcommand table, `install-claude-code-plugin` and `doctor`
+  walkthroughs, and the `init` + `validate` round-trip replace the old
+  "verify the install" recipe.
+
+### Internal
+
+- `cli/main.js` is chmod +x and ESM-only. No new runtime dependencies —
+  uses only `node:fs`, `node:path`, `node:child_process`, `node:url`.
+
 ## [0.5.0] — 2026-05-19
 
 First version published to the npm registry. Aimed at making the tool

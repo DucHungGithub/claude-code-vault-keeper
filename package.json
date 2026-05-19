@@ -1,10 +1,11 @@
 {
   "name": "claude-code-vault-keeper",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
-  "description": "Template-driven validation for any markdown knowledge-vault. Ships an LSP server (per-keystroke diagnostics, navigation, hover, completion) and a CLI validator (vault-keeper-validate). Templates own the rules via `validation_rules` frontmatter; the plugin is vault-agnostic. Config-driven via .claude/vault-keeper.json. Pre-built LSP bundle, no install required for editor diagnostics.",
+  "description": "Template-driven validation for any markdown knowledge-vault. Ships an LSP server (per-keystroke diagnostics, navigation, hover, completion) and a multi-command CLI (`vault-keeper`: validate, doctor, install-claude-code-plugin, init). Templates own the rules via `validation_rules` frontmatter; the plugin is vault-agnostic. Config-driven via .claude/vault-keeper.json. Pre-built LSP bundle, no install required for editor diagnostics.",
   "main": "server/main.bundled.cjs",
   "bin": {
+    "vault-keeper": "cli/main.js",
     "vault-keeper-validate": "cli/validate-documents.js"
   },
   "files": [

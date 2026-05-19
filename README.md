@@ -21,27 +21,43 @@ and the validator picks them up at runtime.
 
 ## Quick start
 
+The package ships two bins: **`vault-keeper`** (multi-tool) and
+**`vault-keeper-validate`** (validate-only alias, kept for backwards
+compatibility).
+
 ### One-shot via `bunx` / `npx` (no install)
 
 ```bash
-bunx claude-code-vault-keeper@latest --root /path/to/your-vault --json
-# or
-npx claude-code-vault-keeper@latest --root /path/to/your-vault --json
+# Multi-tool: any subcommand works
+bunx -p claude-code-vault-keeper vault-keeper doctor
+bunx -p claude-code-vault-keeper vault-keeper validate --root /path/to/vault --json
+bunx -p claude-code-vault-keeper vault-keeper init my-new-vault
+
+# Legacy alias (validate-only) — also works under bunx/npx
+bunx claude-code-vault-keeper@latest --root /path/to/vault --json
 ```
 
 ### Install once, reuse
 
 ```bash
-# global — adds `vault-keeper-validate` to $PATH
+# Global — adds `vault-keeper` + `vault-keeper-validate` to $PATH
 bun add -g claude-code-vault-keeper
 npm i  -g claude-code-vault-keeper
 
-# project dev-dep — runnable via bunx / npx within the repo
+# Project dev-dep
 bun add -D claude-code-vault-keeper
 npm i  -D claude-code-vault-keeper
 ```
 
-### As a Claude Code plugin (LSP diagnostics in your editor)
+### As a Claude Code plugin (inline LSP diagnostics)
+
+The fastest path is the bundled installer:
+
+```bash
+vault-keeper install-claude-code-plugin
+```
+
+Equivalent manual steps (the installer prints them if `claude` is absent):
 
 ```bash
 claude marketplace add https://github.com/nguyenvanduocit/claude-code-vault-keeper.git
@@ -49,7 +65,18 @@ claude plugin install claude-code-vault-keeper@vault-keeper
 ```
 
 The LSP server (`server/main.bundled.cjs`) ships pre-built — editor
-diagnostics need no `npm install`.
+diagnostics need no extra install.
+
+### Subcommands
+
+| Subcommand | What it does |
+|---|---|
+| `vault-keeper validate` | Validate vault docs against template rules (same surface as the legacy `vault-keeper-validate`). |
+| `vault-keeper doctor` | Health-check the environment, cwd vault config, and Claude Code plugin state. `--json` for CI. |
+| `vault-keeper install-claude-code-plugin` | Run `claude marketplace add` + `claude plugin install` for you. |
+| `vault-keeper init [dir]` | Scaffold a minimal vault (`.claude/`, `templates/note-template.md`, `notes/note-001-hello.md`) in `dir` (default: `.`). |
+| `vault-keeper help [cmd]` | Top-level or per-command usage. |
+| `vault-keeper --version` | Print the package version. |
 
 ## Documentation
 

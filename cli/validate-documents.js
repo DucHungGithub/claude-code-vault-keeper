@@ -23,6 +23,7 @@
 
 import { stat } from 'fs/promises';
 import { join, dirname, relative } from 'path';
+import { pathToFileURL } from 'node:url';
 import { glob } from 'glob';
 import { resolveProjectRoot } from '../lib/vault-config.js';
 import { parseDocument, resolveDocPath } from '../lib/doc-io.js';
@@ -569,10 +570,14 @@ function printResults(validationResults, summary, options = {}) {
 }
 
 /**
- * Main execution
+ * Main execution.
+ *
+ * Accepts an explicit argv array so the multi-tool (`cli/main.js`) can
+ * dispatch into this entry point after consuming its own subcommand
+ * positional arg. Defaults to `process.argv.slice(2)` for direct invocation.
  */
-async function main() {
-  const args = process.argv.slice(2);
+async function main(argv = process.argv.slice(2)) {
+  const args = argv;
   const options = {
     path: args.includes('--path') ? args[args.indexOf('--path') + 1] : null,
     strict: args.includes('--strict'),
@@ -664,8 +669,9 @@ async function main() {
   }
 }
 
-// Run if called directly
-if (import.meta.main) {
+// Run if invoked directly (portable across Node + Bun + any ESM runtime).
+const __entry = pathToFileURL(process.argv[1] || '').href;
+if (import.meta.url === __entry) {
   main();
 }
 
@@ -674,6 +680,7 @@ if (import.meta.main) {
 // them with inline frontmatter objects without needing fixture files.
 export {
   // High-level orchestrators
+  main,
   validateDocument,
   findDocuments,
   findAllFiles,

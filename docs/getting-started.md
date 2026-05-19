@@ -17,37 +17,92 @@ covered at the end.
 
 | Style | Use when | Command |
 |---|---|---|
-| **One-shot** (no install) | You want to validate a vault once — CI step, ad-hoc check, evaluating the tool. | `bunx claude-code-vault-keeper@latest --root <vault>` *(or `npx claude-code-vault-keeper@latest --root <vault>`)* |
-| **Project dev-dep** | The vault lives inside an existing JS/TS repo and CI runs `npm`/`bun` already. | `bun add -D claude-code-vault-keeper` *(or `npm i -D claude-code-vault-keeper`)*, then `bunx vault-keeper-validate …` |
-| **Global** | You author multiple vaults across machines and want `vault-keeper-validate` in `$PATH`. | `bun add -g claude-code-vault-keeper` *(or `npm i -g claude-code-vault-keeper`)* |
-| **Claude Code plugin** | You want LSP diagnostics inline as you type. | `claude marketplace add https://github.com/nguyenvanduocit/claude-code-vault-keeper.git` then `claude plugin install claude-code-vault-keeper@vault-keeper` |
+| **One-shot** (no install) | Evaluating the tool / one-off CI check. | `bunx -p claude-code-vault-keeper vault-keeper <command>` *(or `npx -p claude-code-vault-keeper vault-keeper <command>`)* |
+| **Project dev-dep** | The vault lives inside a JS/TS repo and CI runs `npm`/`bun` already. | `bun add -D claude-code-vault-keeper` *(or `npm i -D claude-code-vault-keeper`)* |
+| **Global** | You author many vaults; want `vault-keeper` in `$PATH`. | `bun add -g claude-code-vault-keeper` *(or `npm i -g claude-code-vault-keeper`)* |
+| **Claude Code plugin (LSP)** | You want inline diagnostics in your editor. | `vault-keeper install-claude-code-plugin` *(or run the two `claude …` commands yourself — see below)* |
 
 You do **not** need to `git clone` the repo to use the validator. Cloning
 is only for contributing — see [Architecture](architecture.md#repo-layout).
 
+## Available subcommands
+
+After install, the `vault-keeper` bin exposes:
+
+```text
+vault-keeper validate [--root <vault>] [--path <file>] [--strict] [--json]
+vault-keeper doctor [--json]
+vault-keeper install-claude-code-plugin
+vault-keeper init [<dir>] [--force]
+vault-keeper help [<command>]
+vault-keeper --version
+```
+
+The legacy bin `vault-keeper-validate` (validate-only, same flag surface as
+`vault-keeper validate`) is kept for backwards compatibility — both names
+remain on `$PATH` after install.
+
+### `doctor`
+
+Verify the environment and the current vault are ready to go:
+
+```bash
+vault-keeper doctor
+```
+
+The checklist covers Node version, bun availability, the `claude` CLI, the
+LSP bundle, and the cwd's vault config + `templates/` directory. Pass
+`--json` for CI-consumable output.
+
+### `install-claude-code-plugin`
+
+```bash
+vault-keeper install-claude-code-plugin
+```
+
+Wraps the two-step manual install:
+
+```bash
+claude marketplace add https://github.com/nguyenvanduocit/claude-code-vault-keeper.git
+claude plugin install claude-code-vault-keeper@vault-keeper
+```
+
+If `claude` is not on `$PATH`, the command prints the manual steps instead
+of failing silently.
+
+### `init`
+
+Scaffold a minimal vault skeleton:
+
+```bash
+vault-keeper init my-vault
+cd my-vault
+vault-keeper validate
+```
+
+Creates `.claude/vault-keeper.json`, `templates/note-template.md`, and a
+sample `notes/note-001-hello.md`. The sample validates clean — start
+editing.
+
 ## Verify the install
 
-The runnable example vault ships inside the npm package, so you can drive
-the CLI against it directly with `bunx`:
+Run `doctor` from anywhere to confirm Node, the LSP bundle, the optional
+`claude` CLI, and the cwd vault state are all healthy:
 
 ```bash
-bunx claude-code-vault-keeper@latest \
-  --root "$(bun pm bin -g)/../lib/node_modules/claude-code-vault-keeper/examples/example"
+vault-keeper doctor
 ```
 
-If you'd rather see the example without installing globally, clone the
-repo or browse it on GitHub:
+For an end-to-end check, scaffold and validate a fresh vault in one step:
+
+```bash
+vault-keeper init /tmp/vk-smoke && cd /tmp/vk-smoke && vault-keeper validate
+# → "Valid: 1/1", exit 0
+```
+
+The repository's runnable example vault (15 invalid fixtures + 9 valid
+documents) is browsable on GitHub:
 <https://github.com/nguyenvanduocit/claude-code-vault-keeper/tree/main/examples/example>.
-
-The simplest sanity check on your own machine is to validate the current
-directory (the validator treats a repo with no config as a single vault):
-
-```bash
-cd /tmp && mkdir vk-smoke && cd vk-smoke
-echo '# Hello' > hello.md
-bunx claude-code-vault-keeper@latest --root .
-# → exit 0, "No documents found" or "Valid: 0/0 (no content documents)"
-```
 
 ## Set up your own vault
 
