@@ -25,21 +25,24 @@ claude-code-vault-keeper/
 │   │   ├── completion.js
 │   │   ├── code-action.js
 │   │   ├── code-lens.js
-│   │   ├── inlay-hint.js
+│   │   ├── inlay-hint.js        #   (no-op skeleton — see below)
 │   │   ├── rename.js
 │   │   └── document-formatting.js
 │   └── smoke.js                 #   End-to-end LSP regression test
 │
 ├── lib/                         # Shared parsing / loading (LSP + CLI)
-│   ├── body-parser.js           #   Markdown body parser
+│   ├── schema-engine.js         #   Composable schema validation engine
+│   ├── body-shapes.js           #   Generic markdown shape parsers
+│   ├── expression-eval.js       #   Formula expression evaluator
 │   ├── canonical-formatter.js   #   Document formatter
 │   ├── conditional-eval.js      #   DSL evaluator (`field in [...]`)
 │   ├── doc-io.js                #   parseDocument + resolveDocPath
-│   ├── template-rules.js        #   Load + normalize template validation_rules
+│   ├── template-rules.js        #   Load template schema (fields, bodySchema, etc.)
 │   ├── template-section-rules.js#   Parse per-section yaml section-rules fences
 │   ├── utils.js                 #   deepFreeze
-│   ├── validators.js            #   Pure validators (template field, naming, slug, applyRules)
-│   └── vault-config.js          #   .claude/vault-keeper.json loader
+│   ├── validators.js            #   Pure validators (template field, naming, slug)
+│   ├── vault-config.js          #   .claude/vault-keeper.json loader
+│   └── index.js                 #   Public API barrel
 │
 ├── cli/
 │   └── validate-documents.js    #   Full-vault validator (the `bin` entry)
@@ -83,11 +86,13 @@ server/validator.js
         │     ├── validateTemplateMetaLeak
         │     ├── validateSlug
         │     ├── validatePaths
-        │     └── applyRules
-        │           (rules from lib/template-rules.js loadTemplateRules)
-        ├── lib/body-parser.js parseBody
-        │     │
-        │     └─── warnings[] ──→ diagnostics
+        │     └── validateSectionRulesLeak
+        ├── lib/template-rules.js loadTemplateRules
+        │     └─→ { fields, strict, sections, tier, bodySchema }
+        ├── lib/schema-engine.js applyFieldSchema
+        │     └─→ frontmatter issues (type, enum, pattern, required, min/max, ...)
+        ├── lib/schema-engine.js applyBodySchema
+        │     └─→ body issues (required sections, heading match, table/list/code/formula)
         └─── issues[]
                 │
                 ▼
@@ -113,14 +118,12 @@ cli/validate-documents.js#main
         │     └── validateDocument(filepath)
         │             ├── lib/doc-io.js parseDocument
         │             ├── lib/validators.js (template field, leak, slug, paths)
-        │             ├── lib/validators.js applyRules
-        │             │     ├── required_fields
-        │             │     ├── field_rules (regex/enum/type/min)
-        │             │     ├── conditional_required_fields
-        │             │     │     └── lib/conditional-eval.js (DSL)
-        │             │     ├── state_machine
-        │             │     └── body_section: prefix check
-        │             └── validatePathRegex
+        │             ├── lib/template-rules.js loadTemplateRules
+        │             ├── lib/schema-engine.js applyFieldSchema
+        │             │     └── composable field primitives
+        │             ├── lib/schema-engine.js applyBodySchema
+        │             │     └── body section-rules validation
+        │             └── $path pattern check (via applyFieldSchema)
         ├── findAllFiles(target) ──→ asset slug pass (non-md)
         │
         └── generateSummary → printResults (banner) OR JSON.stringify
@@ -130,6 +133,47 @@ cli/validate-documents.js#main
 ```
 
 ## Module-by-module reference
+
+### `lib/schema-engine.js`
+
+The composable schema validation engine. A closed registry of rule
+primitives — each is a pure function `(value, param, ctx) => Issue[]`.
+
+Exports:
+
+- `PRIMITIVES` — the primitive registry object.
+- `SYNTHETIC_RESOLVERS` — resolvers for `$`-prefixed fields (currently
+  only `$path`).
+- `applyFieldSchema({ fields, strict }, frontmatter, docMeta)` —
+  validate frontmatter against a fields schema.
+- `applyBodySchema(templateBodySchema, docMarkdownBody, docMeta)` —
+  validate a document body against a body schema.
+- `validateTemplateSchema(fieldsSchema)` — meta-validate a `fields:`
+  block.
+- `validateBodyTemplateSchema(bodySchema)` — meta-validate body
+  section-rules.
+
+### `lib/body-shapes.js`
+
+Generic markdown shape parsers — pure infrastructure, zero section-type
+knowledge. Builds the heading tree and extracts tables, lists, and code
+fences.
+
+- `parseHeadingTree(markdownBody)` — returns a virtual root HeadingNode
+  (depth 0) with nested children.
+- `parseTable(node)` — GFM table AST node -> `{ headers, rows, line }`.
+- `parseList(node)` — list AST node -> `{ items: [{ text, line }] }`.
+- `findCodeFences(contentNodes)` — code fences from content nodes.
+
+### `lib/expression-eval.js`
+
+Formula expression evaluator for the `formula` body primitive. Supports
+arithmetic (`+`, `-`, `*`, `/`), comparison (`==`, `!=`, `<`, `>`,
+`<=`, `>=`), parenthesized sub-expressions, unary minus. Identifiers
+resolve from a values object. Equality uses epsilon `1e-9`.
+
+- `evaluate(expression, values)` — evaluate and return result.
+- `parse(expression)` — parse into AST (for meta-validation).
 
 ### `lib/vault-config.js`
 
@@ -143,39 +187,28 @@ resolution.
 ### `lib/template-rules.js`
 
 `loadTemplateRules(templatePath, projectRoot)` reads a template's
-frontmatter via `gray-matter`, picks out `validation_rules:`,
-normalizes it (defensive copy of each collection), and merges in body
-section-rules. Returns `null` if the template can't be loaded.
+frontmatter via `gray-matter`, extracts `fields:`, `strict:`,
+`sections:`, `tier:`, parses the body into a `BodySchemaNode[]` tree,
+runs meta-validation on both fields and body schema, and returns the
+complete schema object or `null`.
 
-`normalizeRules(rules)` defines the canonical shape of a rules object —
-the contract every downstream consumer relies on.
+Returns: `{ fields, strict, sections, tier, bodySchema, templateErrors }`.
 
 ### `lib/template-section-rules.js`
 
-Walks a template body's markdown AST, finds H2 headings, looks for the
-first fenced `yaml section-rules` code block in each section, parses
-it. Exports `parseSectionRules(body)` and `loadTemplateSectionRules
-(path)`.
+Walks a template body's markdown AST via `parseHeadingTree`, finds
+each heading's `yaml section-rules` code block, parses it.
 
-`getRequiredSections(sectionRules)` lifts `required: true` flags into
-the canonical heading list.
+- `parseBodySchema(templateBodyMarkdown)` — returns `BodySchemaNode[]`.
+- `findSectionRuleBlocks(markdownBody)` — returns `{line}[]` for leak
+  detection in authored documents.
 
 ### `lib/conditional-eval.js`
 
-A hand-rolled recursive-descent parser + evaluator for the
-`conditional_required_fields[].condition` DSL. Grammar:
+A hand-rolled recursive-descent parser + evaluator for the `when` DSL.
 
-```
-expr        := or_expr
-or_expr     := and_expr ( 'or' and_expr )*
-and_expr    := comparison ( 'and' comparison )*
-comparison  := field ( 'in' | 'not' 'in' ) list
-list        := '[' ( string ( ',' string )* )? ']'
-field       := IDENT ( '.' IDENT )*
-string      := single-quoted | double-quoted
-```
-
-Exports `evaluate(expression, context)` and `getField(obj, path)`.
+- `evaluate(expression, context)` — evaluate against frontmatter.
+- `getField(obj, path)` — resolve a dot-path on an object.
 
 ### `lib/validators.js`
 
@@ -186,30 +219,17 @@ frontmatter object + filepath and returns an `Issue[]`:
 - `validateTemplateMetaLeak` — template-only keys leaked into instances.
 - `validateSlug` — folder + file slug rule.
 - `validatePaths` — relative paths in frontmatter / body.
-- `applyRules(rules, frontmatter, body, filepath)` — the big one,
-  consumes a full `validation_rules` object.
+- `validateSectionRulesLeak` — section-rules fences in documents.
 
 Also owns the `CONFIG` object that exposes
 `contentFolders` / `excludePatterns` / `slug` / `templateOnlyFields`
 via lazy getters tied to `loadVaultConfig()`.
 
-### `lib/body-parser.js`
-
-The unified body parser. Builds the markdown AST via `unified() +
-remarkParse + remarkGfm`, walks top-level children, dispatches on H2
-heading text to per-section handlers. Section handlers extract
-structured data + emit shape-warnings when bullets/rows don't match the
-expected format.
-
-Pure: no FS, no template knowledge. Format hints flow in via
-`opts.formatHints`.
-
 ### `lib/canonical-formatter.js`
 
 Pure document formatter. Takes raw text + optional `sections[]`
-ordering, applies frontmatter reordering, section reordering, AC
-heading normalization, relationship bullet normalization, whitespace
-cleanup. Idempotent.
+ordering, applies frontmatter reordering, section reordering,
+whitespace cleanup. Idempotent.
 
 ### `lib/doc-io.js`
 
@@ -260,7 +280,7 @@ rules.
 
 Lazy + incrementally-refreshed index of every vault document. Powers
 workspaceSymbol, definition (id-resolution), references (backlinks),
-and the cached frontmatter previews shown by hover / inlay-hint.
+and the cached frontmatter previews shown by hover.
 
 Built on first cross-doc request; refreshed per-file on `didSave`.
 
@@ -271,11 +291,22 @@ declaration plus a `register({ connection, docs, vaultIndex,
 projectRoot })` function. Providers are independent — a failure in one
 doesn't crash the server.
 
+Notable changes:
+- `inlay-hint.js` — currently a **no-op skeleton** (returns empty
+  array). Prior inlay hints depended on a domain-specific body parser
+  that has been replaced by the generic schema engine.
+- `code-lens.js` — provides a backlink count + last-updated lens above
+  `template:`. Domain-specific body lenses (AC, Ship Timeline, Decision
+  Log) have been removed.
+- `completion.js` — provides link-target, heading-anchor, template-path,
+  and generic enum completions (driven by the template's `fields:`
+  schema).
+
 ### `server/diagnostics.js`
 
 Converts validator `Issue` objects to LSP `Diagnostic` objects.
-Resolves line numbers (explicit `issue.line` → frontmatter line-map
-→ line 0). Narrows the range to the field's key span when locatable.
+Resolves line numbers (explicit `issue.line` -> frontmatter line-map
+-> line 0). Narrows the range to the field's key span when locatable.
 
 ### `server/frontmatter-lines.js`
 
@@ -306,23 +337,21 @@ Rebuild via `bun run build`. Smoke test via `bun run smoke`
 
 If you need to add a new rule, follow the order:
 
-1. **Define the rule shape** — add a field to a template's
-   `validation_rules` block.
-2. **Plumb it through `normalizeRules()`** in `lib/template-rules.js`
-   if it's a brand-new field shape. Defensive-copy to keep the
-   returned object immutable.
-3. **Enforce it generically** in `lib/validators.js#applyRules` (or a
-   sibling pure validator). Read the field name dynamically; don't
-   hardcode field semantics.
-4. **Surface in the CLI** — usually automatic if you put enforcement
-   in `applyRules`.
+1. **Define the rule shape** — add a field to a template's `fields:`
+   block, or add a key to a section-rules code fence.
+2. **If the primitive is brand new**, add it to the `PRIMITIVES`
+   registry in `lib/schema-engine.js`. The primitive must be a pure
+   function `(value, param, ctx) => Issue[]`.
+3. **For body-level primitives**, add the key to `SECTION_RULES_KEYS`
+   in `lib/schema-engine.js` and handle it in the body validation
+   logic.
+4. **Surface in the CLI** — usually automatic if enforcement is in
+   `applyFieldSchema` or `applyBodySchema`.
 5. **Surface in the LSP** — usually automatic via
-   `server/validator.js` re-using `applyRules`. Rebuild the bundle
-   (`bun run build`).
-6. **Test** — add a unit test in `tests/validate-documents.test.js`
-   (pure functions) + an integration test in
-   `tests/validate-documents.integration.test.js` (real fixture
-   files).
+   `server/validator.js` re-using the schema engine. Rebuild the
+   bundle (`bun run build`).
+6. **Test** — add unit tests for the primitive + integration tests
+   with fixture templates.
 
 ## See also
 

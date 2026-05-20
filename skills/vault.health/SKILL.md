@@ -30,7 +30,7 @@ The `--json` report shape (see `cli/validate-documents.js` for the contract) lis
 
 1. **template** — which authoring contract is producing the most violations? Often signals a template-side issue, not a per-doc issue.
 2. **folder** — which subtree of the vault is least healthy?
-3. **rule kind** — required_fields missing? path_regex mismatch? state_machine illegal transition? body_section_format violation?
+3. **rule kind** — `required-missing`? `pattern-mismatch` on `$path`? `enum-violation`? `table-shape`? `template-schema-invalid`?
 
 ## Step 3 — render the report
 
@@ -63,13 +63,13 @@ Suggested next steps
   - run `/vault.fix` to auto-format deterministic issues (frontmatter ordering, section ordering, trailing whitespace)
 ```
 
-Cap "top violations" at 5. Cap "suggested next steps" at 3. If a template is producing >50% of all violations, raise that as the single top recommendation — it almost always means the template's `validation_rules` are mis-shaped, not the documents.
+Cap "top violations" at 5. Cap "suggested next steps" at 3. If a template is producing >50% of all violations, raise that as the single top recommendation — it almost always means the template's `fields:` schema or `section-rules` are mis-shaped, not the documents.
 
 ## What this skill DOES NOT do
 
 - Does NOT modify any file (no edits, no formatting, no frontmatter rewrites).
 - Does NOT run `git` commands.
-- Does NOT propose changes to template `validation_rules` unless explicitly asked — that's an authoring decision, not a health check.
+- Does NOT propose changes to template `fields:` schema or `section-rules` unless explicitly asked — that's an authoring decision, not a health check.
 - Does NOT loop. One run, one report, exit.
 
 For auto-fixes hand off to `/vault.fix`. For git sync hand off to `/vault.sync`.

@@ -148,48 +148,40 @@ describe('examples/example/ — fixture-cum-documentation', () => {
     },
     {
       name: 'required_fields missing',
-      match: (i) => /^Missing required field:/.test(i.message),
+      match: (i) => /Required field '.+' is missing/.test(i.message),
     },
     {
       name: 'field_rules regex mismatch',
-      match: (i) => /fails regex/.test(i.message),
+      match: (i) => /does not match pattern/.test(i.message),
     },
     {
       name: 'field_rules values (enum) mismatch',
-      match: (i) => /^Invalid [a-z_.]+: /.test(i.message),
+      match: (i) => /is not in allowed values/.test(i.message),
     },
     {
       name: 'field_rules type:integer',
-      match: (i) => /^Expected integer for/.test(i.message),
+      match: (i) => /Expected type/.test(i.message),
     },
     {
       name: 'field_rules min (below minimum)',
-      match: (i) => /below minimum/.test(i.message),
+      match: (i) => /is less than minimum/.test(i.message),
     },
     {
       name: 'conditional_required_fields (required:true, frontmatter)',
-      match: (i) => /^Required when/.test(i.message),
-    },
-    {
-      name: 'conditional_required_fields (body_section:)',
-      match: (i) => /^Required body section/.test(i.message),
+      match: (i) => i.error_type === 'required-missing' && /Required field '.+' is missing/.test(i.message),
     },
     {
       name: 'conditional_required_fields (min_count)',
-      match: (i) => /^Need at least \d+ entries when/.test(i.message),
+      match: (i) => /is less than minimum/.test(i.message) && i.error_type === 'min-violation',
     },
     {
       name: 'conditional_required_fields (severity:warning)',
       match: (i) =>
-        i.level === 'warning' && /^Required when/.test(i.message),
-    },
-    {
-      name: 'state_machine unknown status',
-      match: (i) => /not declared in template state_machine/.test(i.message),
+        i.level === 'warning' && /Required field '.+' is missing/.test(i.message),
     },
     {
       name: 'path_regex mismatch',
-      match: (i) => i.error_type === 'path-regex-mismatch',
+      match: (i) => i.error_type === 'pattern-mismatch',
     },
     {
       name: 'template-meta leak warning',
@@ -197,7 +189,7 @@ describe('examples/example/ — fixture-cum-documentation', () => {
     },
     {
       name: 'unresolvable template',
-      match: (i) => /Cannot load validation_rules/.test(i.message),
+      match: (i) => /Cannot load schema/.test(i.message),
     },
     {
       name: 'broken frontmatter relationship link',

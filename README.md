@@ -88,20 +88,30 @@ might look like this:
 ---
 template_path: templates/book.md
 document_type: book
-validation_rules:
-  required_fields: [title, author, created, status]
-  optional_fields: [rating, tags, finished]
-  field_rules:
-    - field: status
-      values: [reading, done, abandoned]
-    - field: rating
-      type: integer
-      min: 1
-  path_regex: "^library/books/"
-  state_machine:
-    reading: [done, abandoned]
-    done: []
-    abandoned: [reading]
+fields:
+  $path:
+    pattern: "^library/books/"
+  template:
+    required: true
+  title:
+    required: true
+  author:
+    required: true
+  created:
+    required: true
+    type: string
+    pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+  status:
+    required: true
+    type: string
+    enum: [reading, done, abandoned]
+  rating:
+    type: integer
+    min: 1
+  tags:
+    type: array
+  finished:
+    type: string
 ---
 
 # Book template
@@ -115,10 +125,11 @@ Body sections this template expects.
 
 Edit the template. Every note that declares `template: templates/book.md`
 revalidates against the new rules — no rebuild, no code change. The
-[full rule vocabulary](docs/templates/frontmatter-rules.md) covers conditional
-required fields, state machines, regex, enums, type + minimum checks, body
-section ordering, link-target checks, and a small DSL (`and`, `or`, `in`,
-`not in`, `min_count`) for compound conditions.
+[full rule vocabulary](docs/templates/frontmatter-rules.md) covers composable
+field primitives (type, enum, pattern, required, min/max, uniqueItems, exists),
+conditional requirements via a small DSL (`and`, `or`, `in`, `not in`), body
+section-rules (heading patterns, table/list/code validation, repeatable
+headings, formula expressions), and strict mode for undeclared-field detection.
 
 ---
 
@@ -198,13 +209,13 @@ Node ≥ 18.
 - **LSP server** — diagnostics, hover, completion, code-action, code-lens,
   inlay-hint, rename, document formatting. Pre-built bundle, no install step
   for editor diagnostics.
-- **Shared parser & formatter library** — the same code drives editor and CI.
-  What passes locally passes in CI; no "works on my machine."
-- **Public programmatic API** — `import { parseBody, validateDocument,
-  loadTemplateRules, formatVaultDocument, … } from 'claude-code-vault-keeper'`.
-  Reuse the same primitives the CLI and LSP build on to write custom
-  reporters, dashboards, CI gates, pre-commit hooks, or editor integrations.
-  See [`docs/programmatic-usage.md`](docs/programmatic-usage.md).
+- **Composable schema engine** — the same validation primitives drive editor
+  and CI. What passes locally passes in CI; no "works on my machine."
+- **Public programmatic API** — `import { applyFieldSchema, applyBodySchema,
+  validateDocument, loadTemplateRules, formatVaultDocument, … } from
+  'claude-code-vault-keeper'`. Reuse the same primitives the CLI and LSP
+  build on to write custom reporters, dashboards, CI gates, pre-commit hooks,
+  or editor integrations. See [`docs/programmatic-usage.md`](docs/programmatic-usage.md).
 - **No domain knowledge.** Every rule comes from a template you wrote. Drop
   `vault-keeper` into any markdown folder and it adapts.
 - **Six Claude Code skills** — verbs you type in a Claude session:
@@ -221,7 +232,7 @@ Node ≥ 18.
 - [Templates](docs/templates/README.md) — author rules your vault enforces.
 - [CLI reference](docs/cli-validator.md) — every flag, every exit code.
 - [LSP features](docs/lsp-features.md) — what each editor surface does.
-- [Programmatic usage](docs/programmatic-usage.md) — `import { parseBody,
+- [Programmatic usage](docs/programmatic-usage.md) — `import { applyFieldSchema,
   validateDocument, … } from 'claude-code-vault-keeper'` for custom
   scripts, dashboards, CI gates, and editor integrations.
 - [CI/CD integration](docs/ci-cd-integration.md) — GitHub Actions / GitLab /

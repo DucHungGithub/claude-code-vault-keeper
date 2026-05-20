@@ -1,11 +1,11 @@
 ---
 name: vault.new
-description: "Scaffold a new vault document from a template — read the template's `validation_rules` via the public API (`loadTemplateRules`), generate frontmatter placeholders for every `required_field`, derive the target path from the template's `path_regex`, write the file, then validate it. Generic across vault shapes; reads everything from the template at runtime. Use when the user says 'new task', 'new doc', 'tạo doc mới', 'scaffold doc', 'thêm task', 'create from template', '/vault.new <type> [slug]'."
+description: "Scaffold a new vault document from a template — read the template's `fields:` schema via the public API (`loadTemplateRules`), generate frontmatter placeholders for every required field, derive the target path from the `$path` pattern, write the file, then validate it. Generic across vault shapes; reads everything from the template at runtime. Use when the user says 'new task', 'new doc', 'tạo doc mới', 'scaffold doc', 'thêm task', 'create from template', '/vault.new <type> [slug]'."
 ---
 
 # vault.new — scaffold a doc from a template
 
-This skill creates a new document conforming to a template's `validation_rules`. It reads the template at runtime via the public API — no field name, no path prefix, no status value is hardcoded.
+This skill creates a new document conforming to a template's `fields:` schema. It reads the template at runtime via the public API — no field name, no path prefix, no status value is hardcoded.
 
 ## Inputs
 
@@ -32,16 +32,17 @@ import('claude-code-vault-keeper').then(async ({ loadTemplateRules }) => {
 "
 ```
 
-Parse the JSON. Extract:
-- `required_fields` — array of field names
-- `optional_fields` — array
-- `field_rules` — array of per-field constraints (`field`, `values`/`regex`/`type`/`min`)
-- `path_regex` — the path pattern the new doc must match
-- `state_machine` — keys are valid `status` values (used to pick a starting state)
+Parse the JSON. The returned object has the shape:
+- `fields` — `Record<string, object>` keyed by field name; each entry carries primitives (`type`, `required`, `enum`, `pattern`, `min`, `max`, `exists`, `uniqueItems`, `description`). Keys starting with `$` are synthetic fields (e.g. `$path`) — they constrain document metadata, not frontmatter values.
+- `strict` — boolean; whether undeclared frontmatter keys are errors.
+- `sections` — string array; formatter H2 ordering vocabulary.
+- `tier` — string or null; template tier label.
+- `bodySchema` — array of `BodySchemaNode` trees (`{ depth, text, sectionRules, children }`); each node represents a template heading that may carry `section-rules`.
+- `templateErrors` — array of meta-validation issues (if non-empty, the template itself is malformed — abort and surface them).
 
 ## Step 2 — derive the target file path
 
-Parse `path_regex` to find the literal prefix (everything before the first regex meta character `\d`, `[`, `(`, `*`, `+`, `?`). Example: `^docs/tasks/t-\\d{3}-[a-z0-9-]+\\.md$` → literal prefix `docs/tasks/t-`, numeric pattern `\d{3}`, slug placeholder.
+Read `fields['$path']?.pattern` to get the path regex. Parse it to find the literal prefix (everything before the first regex meta character `\d`, `[`, `(`, `*`, `+`, `?`). Example: `^docs/tasks/t-\\d{3}-[a-z0-9-]+\\.md$` → literal prefix `docs/tasks/t-`, numeric pattern `\d{3}`, slug placeholder.
 
 Algorithm:
 1. Extract literal prefix.
@@ -49,30 +50,37 @@ Algorithm:
 3. Append `<slug>.md` (or current date if no slug provided).
 4. If the derived path already exists, abort with: *"Target `<path>` already exists. Pick a different slug."*
 
-If `path_regex` is missing or has no literal prefix, ask the user via `AskUserQuestion` for the target path.
+If `$path` is absent or the pattern has no derivable literal prefix, ask the user via `AskUserQuestion` for the target path.
 
 ## Step 3 — generate frontmatter placeholders
 
-For each field in `required_fields`, pick a value:
+Iterate `Object.entries(fields)`. **Skip** keys starting with `$` (synthetic fields do not appear in frontmatter). For each field, determine whether to include it:
+- Include if `required: true` (shorthand) or `required: { when: "..." }` (conditional — include with a placeholder since the condition may be met at creation time).
+- Include if the field carries constraints that hint at a default value (`enum`, `type` + `min`).
+- Skip fields that are purely optional with no useful default.
 
-Evaluate rows top-to-bottom; the first matching row wins.
+For each included field, pick a placeholder value. Evaluate rows top-to-bottom; the first matching row wins:
 
 | Field shape | Placeholder |
 |---|---|
-| `template` (always required) | `templates/<type>-template.md` |
-| `field_rules` with `values: [...]` | first value in the list |
-| `field_rules` with `type: integer, min: M` | `M` |
-| `field_rules` with `regex: ...` | `'@TODO'` (literal placeholder for the user to fill in) |
-| `field` matching `created` / `updated` / `*_date` | today in `YYYY-MM-DD` |
-| `field` matching `owner` | `'@TODO'` |
-| `title` | slug humanized (replace hyphens with spaces, title-case) |
+| field name is `template` | `templates/<type>-template.md` |
+| `enum: [v1, v2, ...]` | first value in the list (`v1`) |
+| `type: integer` or `type: number`, with `min: N` | `N` |
+| `pattern: "..."` present | `'@TODO'` (literal placeholder for the user to fill in) |
+| field name matches `created` / `updated` / `*_date` | today in `YYYY-MM-DD` |
+| field name is `title` | slug humanized (replace hyphens with spaces, title-case) |
 | anything else | `'@TODO'` |
 
 Order keys priority-first: `id`, `title`, `template`, `status`, `phase`, `owner`, `created`, `updated`, then the rest alphabetically. Match the canonical formatter's expected order (`PRIORITY_KEYS` in `lib/canonical-formatter.js`).
 
 ## Step 4 — write the file
 
-Use the `Write` tool. The body section can include just the H2 headings the template declares under `required_body_sections` (read those from the same `loadTemplateRules` call). Leave each section empty for the user to fill.
+Use the `Write` tool. The body includes H2 headings derived from the `bodySchema` tree. Walk `bodySchema` children (depth-2 nodes):
+- For each node where `sectionRules?.required` is truthy or `sectionRules` is present, emit `## <node.text>` followed by an empty line.
+- **Skip** nodes where `sectionRules?.repeatable` is truthy — their `text` is a pattern slot (e.g. `<item>`), not a concrete heading. The user adds repeated items manually.
+- Recurse into children only to discover required sub-headings; generally only depth-2 headings are scaffolded.
+
+Leave each section body empty for the user to fill.
 
 ## Step 5 — validate
 
@@ -94,7 +102,7 @@ vault.new — created <type> document
 
   path:      <newfile>
   template:  templates/<type>-template.md
-  validate:  ✅ green (or: ⚠️ N placeholders to fill)
+  validate:  pass (or: N placeholders to fill)
 
 Next: edit the file, replace placeholders, then `/vault.health` or `/vault.fix` as needed.
 ```
@@ -103,9 +111,9 @@ Next: edit the file, replace placeholders, then `/vault.health` or `/vault.fix` 
 
 Refuse if:
 - Template does not exist.
-- Template's `validation_rules` is missing or unparseable.
+- Template has `templateErrors` (meta-validation failures) — surface them.
 - Target path already exists (do not clobber).
-- `path_regex` has no derivable literal prefix and the user declines to provide a path.
+- `$path` pattern has no derivable literal prefix and the user declines to provide a path.
 
 ## Composition
 

@@ -3,27 +3,53 @@
 This page covers the rules that govern **where a document lives** and
 **what it's named**:
 
-- [`path_regex`](#path_regex) — template-declared path regex.
-- [Bundle README pattern](#bundle-readme-pattern) — when a folder's
-  `README.md` is the canonical document for that folder.
+- [`$path` synthetic field](#path-synthetic-field) — template-declared
+  path constraint via the composable schema.
 - [Slug rule](#slug-rule) — every folder segment + filename must be
   lowercase-kebab-case.
 
 ---
 
-## `path_regex`
+## `$path` synthetic field
 
-Each template self-declares the regex that an instance's path must
-match. Declared inside the template's `validation_rules` block.
+Each template declares path constraints using the `$path` synthetic
+field inside its `fields:` block. The `$path` field is resolved at
+validation time to the document's **repo-relative path** (normalized
+to forward slashes regardless of platform separator).
 
 ```yaml
-validation_rules:
-  path_regex: "^docs/notes/note-\\d{3}-[a-z0-9-]+\\.md$"
+fields:
+  $path:
+    pattern: "^docs/notes/note-\\d{3}-[a-z0-9-]+\\.md$"
 ```
 
-The validator compiles the source string with `new RegExp()` and tests
-it against the document's **repo-relative path** (normalized to forward
-slashes regardless of platform separator).
+Synthetic fields (prefixed with `$`) are resolved via built-in
+resolvers instead of reading from the document's frontmatter. The
+`$path` resolver returns the document's repo-relative path.
+
+### Allowed primitives on synthetic fields
+
+Synthetic fields may only use `pattern`, `enum`, and `description`.
+Other primitives (like `required`, `type`, `min`) produce a
+`template-schema-invalid` error during meta-validation.
+
+```yaml
+# Pattern — path must match a regex
+fields:
+  $path:
+    pattern: "^docs/notes/note-\\d{3}-[a-z0-9-]+\\.md$"
+
+# Enum — path must be one of a fixed set (unusual but valid)
+fields:
+  $path:
+    enum: ["docs/config/main.md", "docs/config/staging.md"]
+
+# Description — document the path convention (metadata only)
+fields:
+  $path:
+    pattern: "^docs/tasks/t-\\d{3}-[a-z0-9-]+\\.md$"
+    description: "Tasks live under docs/tasks/ with a t-NNN prefix"
+```
 
 ### Anchoring
 
@@ -37,38 +63,34 @@ Use regex alternation. Common pattern: support both flat files and
 bundle README form:
 
 ```yaml
-path_regex: >-
-  ^docs/notes/note-\\d{3}-[a-z0-9-]+\\.md$|
-  ^docs/notes/note-\\d{3}-[a-z0-9-]+/README\\.md$
+fields:
+  $path:
+    pattern: >-
+      ^docs/notes/note-\\d{3}-[a-z0-9-]+\\.md$|
+      ^docs/notes/note-\\d{3}-[a-z0-9-]+/README\\.md$
 ```
 
 YAML's `>-` folded scalar strips newlines so the regex stays single-
-line. The alternative `|` lives inside the regex — don't introduce
-whitespace inside the regex source.
+line.
 
 ### What fires on mismatch
 
 ```
-[ERR ] field=location  error_type=path-regex-mismatch
-       Document path "docs/random/note-001-foo.md" does not match
-       template's path_regex.
-       fix: Move/rename the file to match: ^docs/notes/note-\d{3}-...
+[ERR ] field=$path  error_type=pattern-mismatch
+       Value 'docs/random/note-001-foo.md' does not match pattern
+       '^docs/notes/note-\d{3}-[a-z0-9-]+\.md$'
+       fix: Must match: ^docs/notes/note-\d{3}-[a-z0-9-]+\.md$
 ```
 
-A `null` / absent `path_regex` skips the check — useful for templates
-whose instances may live anywhere (e.g. a generic note that spans
-multiple sections).
+An absent `$path` field in the template (or a template with no path
+constraint) skips the check — useful for templates whose instances may
+live anywhere.
 
-### Bad regex → actionable error
+### Bad regex
 
-If the regex source doesn't compile, the validator emits one error
-pointing at the template (not the instance):
-
-```
-[ERR ] field=template  error_type=path-regex-bad-regex
-       Template's path_regex is not a valid regex: <RegExp error>
-       fix: Fix the regex in the template's validation_rules.path_regex.
-```
+If the regex source doesn't compile, the template's meta-validation
+emits a `template-schema-invalid` error pointing at the template (not
+the instance).
 
 ---
 
@@ -92,37 +114,17 @@ The CLI orchestrator runs an extra glob pass that re-includes every
 `templates/folder-readme-template.md`. The decision is template-driven —
 no hardcoded path lists.
 
-If a `README.md` sits at a path that some content template's
-`path_regex` matches as a bundle root, but the doc's own `template:`
-field is missing or set to `folder-readme-template.md`, the validator
-synthesises a specific error:
-
-```
-[ERR ] field=template  error_type=bundle-readme-template-mismatch
-       Bundle README has wrong template "<actual>". This path matches a
-       content template's bundle pattern. Expected one of:
-       templates/<a>.md, templates/<b>.md.
-       fix: Set frontmatter "template:" to one of: …
-```
-
-This prevents silent skips on bundle conversions (e.g.
-`git mv foo.md foo/README.md` without updating `template:`).
-
 ### Authoring a bundle-capable template
 
-Author the `path_regex` with a `/README\.md$` alternative that
-participates in the bundle scan:
+Author the `$path` pattern with a `/README\.md$` alternative:
 
 ```yaml
-validation_rules:
-  path_regex: >-
-    ^docs/prds/prd-\\d{3}-[a-z0-9-]+\\.md$|
-    ^docs/prds/prd-\\d{3}-[a-z0-9-]+/README\\.md$
+fields:
+  $path:
+    pattern: >-
+      ^docs/prds/prd-\\d{3}-[a-z0-9-]+\\.md$|
+      ^docs/prds/prd-\\d{3}-[a-z0-9-]+/README\\.md$
 ```
-
-A template that opts into the bundle scan must include `/README\.md`
-literally in its regex source — the bundle detector matches on that
-substring.
 
 ---
 
@@ -150,11 +152,11 @@ rules, and each dot-separated extension segment also follows slug rules:
 
 | Basename | Name part | Extension chain | OK? |
 |---|---|---|---|
-| `note.md` | `note` | `md` | ✅ |
-| `tailwind.config.js` | `tailwind` | `config.js` | ✅ |
-| `Note.md` | `Note` (uppercase) | — | ❌ |
-| `note 1.md` | `note 1` (space) | — | ❌ |
-| `note_one.md` | `note_one` (underscore) | — | ❌ |
+| `note.md` | `note` | `md` | yes |
+| `tailwind.config.js` | `tailwind` | `config.js` | yes |
+| `Note.md` | `Note` (uppercase) | — | no |
+| `note 1.md` | `note 1` (space) | — | no |
+| `note_one.md` | `note_one` (underscore) | — | no |
 
 ### Task-ID exception
 
@@ -184,14 +186,14 @@ are tooling artifacts and skipped silently.
 ### Error shape
 
 ```
-[ERR ] field=folder   Folder 'Bad Folder' violates slug convention …
+[ERR ] field=folder   Folder 'Bad Folder' violates slug convention ...
        fix: Rename folder to 'bad-folder/'
-[ERR ] field=filename Filename 'My Note.md' violates slug convention …
-       fix: Rename to 'my-note.md' …
+[ERR ] field=filename Filename 'My Note.md' violates slug convention ...
+       fix: Rename to 'my-note.md' ...
 ```
 
 The validator suggests a kebab-cased rewrite via `suggestSlug()` —
-camelCase → camel-Case, underscores → hyphens, strip non-`[a-z0-9-]`
+camelCase -> camel-case, underscores -> hyphens, strip non-`[a-z0-9-]`
 characters, collapse `--`.
 
 ---
@@ -204,9 +206,18 @@ Template:
 ---
 template_path: templates/note-template.md
 document_type: note
-validation_rules:
-  required_fields: [template, document_type, title, owner]
-  path_regex: "^docs/notes/note-\\d{3}-[a-z0-9-]+\\.md$"
+tier: KNOWLEDGE
+fields:
+  $path:
+    pattern: "^docs/notes/note-\\d{3}-[a-z0-9-]+\\.md$"
+  template:
+    required: true
+  document_type:
+    required: true
+  title:
+    required: true
+  owner:
+    required: true
 ---
 ```
 
@@ -221,14 +232,14 @@ Vault config:
 
 | Path | Result |
 |---|---|
-| `docs/notes/note-001-foo.md` | ✅ matches both template + slug rule |
-| `docs/notes/foo.md` | ❌ `path_regex` fails (no `note-NNN-` prefix) |
-| `docs/notes/Note-001.md` | ❌ slug rule fails (uppercase) |
+| `docs/notes/note-001-foo.md` | matches both `$path` pattern + slug rule |
+| `docs/notes/foo.md` | `$path` pattern fails (no `note-NNN-` prefix) |
+| `docs/notes/Note-001.md` | slug rule fails (uppercase) |
 
 ## See also
 
-- [Frontmatter rules](frontmatter-rules.md) — required fields, regex,
-  state machine.
+- [Frontmatter rules](frontmatter-rules.md) — composable field
+  primitives.
 - [Body rules](body-rules.md) — body section-rules, section ordering.
 - [Naming conventions](../naming-conventions.md) — the slug rule in
   isolation, with exempt-basename rationale.

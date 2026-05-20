@@ -6,21 +6,56 @@ the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — composable schema validation redesign
+
+The ad-hoc `validation_rules` frontmatter block and the hardcoded body-parser section logic are replaced by a single composable, template-driven schema system driven by a closed registry of rule primitives.
+
+#### Frontmatter: `validation_rules` → `fields:` schema
+
+`validation_rules` (with its sub-blocks `required_fields`, `field_rules`, `conditional_required_fields`, `state_machine`, `path_regex`, `optional_fields`, `body_section_formats`, `required_body_sections`, `allowed_roles`, `required_gherkin_section`) is replaced by a flat `fields:` block keyed by field name. Primitives are declared directly on each field entry:
+
+- `required: true` replaces `required_fields` membership.
+- `enum`, `pattern`, `type`, `min`, `max` replace `field_rules` entries.
+- `required: { when: "<DSL>" }` replaces `conditional_required_fields`.
+- `$path: { pattern: "..." }` (synthetic field) replaces `path_regex`.
+- `strict: true` (top-level) opts in to undeclared-key errors.
+- `state_machine` is dropped — use `enum` on the status field.
+- `optional_fields` is dropped — fields without `required: true` are optional.
+
+Expanded form `{ value, when, severity, message }` is available on any constraint for conditional gating and severity override.
+
+#### Body validation: hardcoded handlers → generic `section-rules` primitives
+
+`lib/body-parser.js`'s 12 hardcoded `SECTION_HANDLERS` and 23 hardcoded warning types are replaced by generic shape parsers (`table`/`list`/`heading-tree`/`code-fence` from `lib/body-shapes.js`) driven by template `section-rules` blocks. The template body mirrors the document shape; each heading section carries a `yaml section-rules` fence with composable primitives: `required`, `repeatable`, `heading` (with `pattern`/`enum`), `table` (with `columns`/`key_column`/`value_column`), `list` (with `item.pattern`), `code` (with `lang`), `formula`, `min`/`max` cardinality.
+
+#### Template meta-validation
+
+Templates are now validated when loaded. Malformed `fields:` entries or `section-rules` blocks yield structured `template-schema-invalid` errors attributed to the template — the engine never throws mid-document.
+
 ### Added
 
+- **New modules:** `lib/schema-engine.js` (primitive registry, `applyFieldSchema`, `applyBodySchema`, `validateTemplateSchema`, `validateBodyTemplateSchema`), `lib/expression-eval.js` (arithmetic/comparison evaluator for `formula`), `lib/body-shapes.js` (generic shape parsers).
+- **New public API:** `loadTemplateRules` returns `{ fields, strict, sections, tier, bodySchema, templateErrors }`. Exports: `PRIMITIVES`, `SYNTHETIC_RESOLVERS`, `applyFieldSchema`, `applyBodySchema`, `validateTemplateSchema`, `validateBodyTemplateSchema`.
+- **Synthetic fields:** `$path` resolves to the document's repo-relative POSIX path; constrained via `pattern`/`enum`.
 - **Built-in rule — `section-rules` fence leak.** A `yaml section-rules` code fence is a template-authoring construct (templates declare per-section requirements with it). The CLI validator and the LSP now flag a `section-rules` fence found in an authored document as an error (`error_type: section-rules-leak`) — the message reads *"A '```yaml section-rules' code block belongs to templates only and must not appear in a document"*. Templates under `templates/` are exempt. The rule is generic infrastructure — it keys off the plugin's own DSL construct, not vault vocabulary — so it needs no template configuration.
   - New public API: `findSectionRuleBlocks` (from `./template-section-rules`) locates every `section-rules` fence in a markdown body; `validateSectionRulesLeak` (from `./validators`) returns the leak issues. Both re-exported from the barrel.
   - Detection is AST-based, so a `section-rules` fence shown *inside* an outer code fence (documentation) is correctly treated as plain text, not a leak.
 
+### Removed
+
+- `applyRules` from `lib/validators.js`; old `normalizeRules` shape from `lib/template-rules.js`; `validatePathRegex` from `cli/validate-documents.js` (folded into `$path` synthetic field).
+- `body_section_formats`, `required_body_sections`, `allowed_roles`, `required_gherkin_section` template keys (superseded by body `section-rules` primitives).
+- 12 `SECTION_HANDLERS` and 23 hardcoded warning types from `lib/body-parser.js`.
+
 ## [0.8.0] — 2026-05-19
 
-Ships the **Claude Code skill suite** that turns the plugin from "LSP + CLI" into six verbs the user types inside a Claude session. All skills are vault-agnostic — they read `validation_rules` from templates at runtime via the v0.7.0 public API, hardcode nothing.
+Ships the **Claude Code skill suite** that turns the plugin from "LSP + CLI" into six verbs the user types inside a Claude session. All skills are vault-agnostic — they read template schemas at runtime via the v0.7.0 public API, hardcode nothing.
 
 ### Added
 
 - **Five Claude Code skills committed for the first time:**
   - `/vault.setup` — interview-driven onboarding; scaffolds via `vault-keeper init`, then extends templates per the user's answers.
-  - `/vault.new <type> [slug]` — scaffolds a new document from `templates/<type>-template.md`. Reads `required_fields`, `field_rules`, `path_regex` via `loadTemplateRules`; generates frontmatter placeholders per field shape; derives the target path from the regex's literal prefix; validates after write.
+  - `/vault.new <type> [slug]` — scaffolds a new document from `templates/<type>-template.md`. Reads the `fields` schema and `bodySchema` via `loadTemplateRules`; generates frontmatter placeholders per field primitives; derives the target path from the `$path` pattern's literal prefix; validates after write.
   - `/vault.health` — digests `vault-keeper doctor --json` + `vault-keeper validate --json` into a report grouped by template, folder, and rule kind.
   - `/vault.fix` — applies `formatVaultDocument` deterministically (frontmatter key order, body section order, AC/relationship normalization, whitespace), re-validates, reports residuals that need human judgment.
   - `/vault.sync` — validate-then-push pipeline; refuses to push if validate fails; manages stash, rebase, restore, commit, push as a single gated chain.

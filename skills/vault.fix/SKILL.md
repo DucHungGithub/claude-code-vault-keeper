@@ -21,10 +21,10 @@ From `canonical-formatter.js`:
 
 ## Scope of UNSAFE fixes (what this skill REFUSES)
 
-- Filling in a missing `required_fields` entry — that's authoring.
-- Coercing an invalid `status` value into a legal one — that's a semantic guess.
-- Renaming a file to match `path_regex` — that affects links and history.
-- Adding missing `required_body_sections` H2 headings — empty section is meaningless.
+- Filling in a missing required field — that's authoring.
+- Coercing an invalid `status` value into a legal `enum` value — that's a semantic guess.
+- Renaming a file to match the `$path` pattern — that affects links and history.
+- Adding missing required body sections — empty section is meaningless.
 - Anything that depends on knowing what the user *meant*.
 
 If the user explicitly asks for one of the above, refuse and explain: *"That requires authoring judgment, not formatting. Open the file and decide."*

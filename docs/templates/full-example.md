@@ -38,57 +38,56 @@ my-vault/
 ---
 template_path: templates/prd-template.md
 document_type: prd
-validation_rules:
-  required_fields:
-    - template
-    - document_type
-    - title
-    - owner
-    - status
-    - created
-  optional_fields:
-    - tags
-    - design_link
-  conditional_required_fields:
-    - condition: "status in ['approved', 'shipped']"
-      field: shipped_date
-      required: true
-    - condition: "prd_type in ['feature']"
-      field: rice
-      required: true
-    - condition: "status in ['shipped']"
-      field: "body_section:## Outcome"
-      required: true
-  field_rules:
-    - field: created
-      regex: "^\\d{4}-\\d{2}-\\d{2}$"
-    - field: shipped_date
-      regex: "^\\d{4}-\\d{2}-\\d{2}$"
-    - field: status
-      values: [draft, review, approved, shipped, dropped]
-    - field: prd_type
-      values: [feature, enhancement, fix]
-    - field: rice.reach
-      type: integer
-      min: 1
-    - field: rice.confidence
-      type: integer
-      min: 1
-  state_machine:
-    draft:    [review, dropped]
-    review:   [approved, draft]
-    approved: [shipped, draft]
-    shipped:  []
-    dropped:  []
-  path_regex: "^docs/prds/prd-\\d{3}-[a-z0-9-]+\\.md$"
-  sections:
-    - problem
-    - goals
-    - acceptance-criteria
-    - ship-timeline
-    - outcome
-    - "*"
-    - relationships
+tier: PRODUCT
+sections:
+  - problem
+  - goals
+  - acceptance-criteria
+  - ship-timeline
+  - outcome
+  - "*"
+  - relationships
+fields:
+  $path:
+    pattern: "^docs/prds/prd-\\d{3}-[a-z0-9-]+\\.md$"
+  template:
+    required: true
+  document_type:
+    required: true
+  title:
+    required: true
+  owner:
+    required: true
+  status:
+    type: string
+    required: true
+    enum: [draft, review, approved, shipped, dropped]
+  created:
+    type: string
+    required: true
+    pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+  tags:
+    type: array
+  design_link:
+    type: string
+  shipped_date:
+    type: string
+    required: { when: "status in ['approved', 'shipped']" }
+    pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+  prd_type:
+    type: string
+    enum: [feature, enhancement, fix]
+  priority:
+    type: string
+    enum: [must, should, nice]
+  rice:
+    required: { when: "prd_type in ['feature']" }
+  rice.reach:
+    type: integer
+    min: 1
+  rice.confidence:
+    type: integer
+    min: 1
 ---
 
 # PRD template
@@ -97,7 +96,6 @@ validation_rules:
 
 ```yaml section-rules
 required: true
-example: "Describe the user problem in 2-3 sentences."
 ```
 
 ## Goals
@@ -110,16 +108,19 @@ required: true
 
 ```yaml section-rules
 required: true
-heading_format: "### AC<n> — <text> — `<priority>` · `<status>`"
-example: "### AC1 — User can checkout — `must` · `verified`"
-valid_priorities: [must, should, nice]
-valid_statuses: [draft, in_progress, verified, descoped]
+```
+
+### <item>
+```yaml section-rules
+repeatable: true
+heading:
+  pattern: "^AC\\d+ — .+ — `(must|should|nice)` · `(draft|in_progress|verified|descoped)`$"
 ```
 
 ## Ship Timeline
 
 ```yaml section-rules
-required: false
+required: { when: "status in ['approved', 'shipped']" }
 ```
 
 ## Outcome
@@ -132,14 +133,17 @@ required: false
 
 ```yaml section-rules
 required: false
-format: "- [<title>](<path>) [— *<reason>*]"
-example: "- [DIBB-001](../strategy/dibbs/dibb-001.md) — *bets on growth*"
+list:
+  item:
+    pattern: "^\\*\\*[a-z_]+\\*\\* \\[.+\\]\\(.+\\)( — .+)?$"
 ```
 ````
 
-This template declares **all five** rule kinds (required, conditional,
-field, state machine, path_regex) plus body section-rules + an
-explicit `sections[]` ordering.
+This template declares composable field primitives (`type`, `enum`,
+`pattern`, `required` with `when`, `min`) on frontmatter fields, a
+`$path` synthetic field for filesystem placement, and body section-rules
+with a repeatable AC heading pattern, a conditional body section, and
+a relationship list format constraint.
 
 ## A conforming instance
 
@@ -168,11 +172,11 @@ Today's checkout takes 4 taps; users abandon after 2.
 
 ## Goals
 
-Reduce checkout taps to ≤2 without losing payment-method coverage.
+Reduce checkout taps to <=2 without losing payment-method coverage.
 
 ## Acceptance Criteria
 
-### AC1 — User completes checkout in ≤2 taps — `must` · `verified`
+### AC1 — User completes checkout in <=2 taps — `must` · `verified`
 
 (verification artifact link goes here)
 
@@ -186,41 +190,29 @@ Reduce checkout taps to ≤2 without losing payment-method coverage.
 
 ## Outcome
 
-Tap count median dropped from 4 → 2. Conversion +3.1%.
+Tap count median dropped from 4 to 2. Conversion +3.1%.
 
 ## Relationships
 
-- [DIBB-005 — Growth bets](../strategy/dibbs/dibb-005.md) — *implements bet 2*
+- **implements** [DIBB-005 — Growth bets](../strategy/dibbs/dibb-005.md) — *implements bet 2*
 ````
 
 This passes every rule:
 
 | Rule | Status |
 |---|---|
-| `required_fields` (6 keys) | ✅ all present |
-| `conditional_required_fields` (`status: approved` → `shipped_date`) | ✅ present |
-| `conditional_required_fields` (`prd_type: feature` → `rice`) | ✅ present |
-| `field_rules.regex` (`created`) | ✅ matches `YYYY-MM-DD` |
-| `field_rules.values` (`status`) | ✅ `approved` is permitted |
-| `field_rules.type integer` + `min` (`rice.reach`, `rice.confidence`) | ✅ both ≥ 1 |
-| `state_machine` (`approved`) | ✅ declared node |
-| `path_regex` | ✅ matches `prd-001-checkout-redesign.md` |
-| Body section-rules (`required: true` on `## Problem`, `## Goals`, `## Acceptance Criteria`) | ✅ all H2s present |
-
-Expected validator output:
-
-```bash
-$ bun cli/validate-documents.js --root . --json | jq '.summary'
-{
-  "total": 1,
-  "skipped": 0,
-  "valid": 1,
-  "invalid": 0,
-  "errorCount": 0,
-  "warningCount": 0,
-  ...
-}
-```
+| `fields.template` (required) | present |
+| `fields.status` (required + enum) | `approved` is permitted |
+| `fields.created` (required + pattern) | matches `YYYY-MM-DD` |
+| `fields.shipped_date` (conditional required, `when: status in [approved, shipped]`) | present |
+| `fields.rice` (conditional required, `when: prd_type in [feature]`) | present |
+| `fields.rice.reach` (type integer + min 1) | `50` >= 1 |
+| `fields.$path` (pattern) | matches `prd-001-checkout-redesign.md` |
+| Body `## Problem` (required: true) | present |
+| Body `## Goals` (required: true) | present |
+| Body `## Acceptance Criteria` (required: true) | present |
+| Body AC headings (repeatable, heading.pattern) | both match |
+| Body `## Relationships` list (item.pattern) | all items match |
 
 ## A broken instance
 
@@ -235,8 +227,6 @@ owner: '@alice'
 status: shippping
 created: not-a-date
 prd_type: feature
-validation_rules:
-  required_fields: [hijacked]
 ---
 
 # Broken example
@@ -246,55 +236,44 @@ validation_rules:
 ### AC1 - missing dashes
 ````
 
-Diagnostics this would generate (against the template above):
+Diagnostics this would generate:
 
 ```
-[ERR ]  field=created
-        Value 'not-a-date' fails regex ^\d{4}-\d{2}-\d{2}$
-        fix: Field created must match ^\d{4}-\d{2}-\d{2}$
+[ERR ]  field=created         error_type=pattern-mismatch
+        Value 'not-a-date' does not match pattern '^\d{4}-\d{2}-\d{2}$'
+        fix: Must match: ^\d{4}-\d{2}-\d{2}$
 
-[WARN]  field=status
-        Status 'shippping' is not declared in template state_machine
+[ERR ]  field=status          error_type=enum-violation
+        Value 'shippping' is not in allowed values: [draft, review, approved, shipped, dropped]
         fix: Use one of: draft, review, approved, shipped, dropped
 
-[ERR ]  field=rice
-        Required when prd_type in ['feature']
-        fix: Add rice to frontmatter
+[ERR ]  field=rice            error_type=required-missing
+        Required field 'rice' is missing
+        fix: Add 'rice' to frontmatter
 
-[WARN]  field=validation_rules
-        Template-only field "validation_rules" leaked into instance from
-        template scaffold
-        fix: Remove "validation_rules:" from frontmatter — it belongs to
-        templates/ only
+[ERR ]  field=## Problem      error_type=required-missing
+        Required section '## Problem' is missing
 
-[WARN]  field=body
-        AC heading does not match expected format:
-        `### AC<n>[.<m>] — <text> — \`<priority>\` · \`<status>\` [(flag)]`
-        fix: Fix the format to match the expected pattern shown in the message
+[ERR ]  field=## Goals        error_type=required-missing
+        Required section '## Goals' is missing
+
+[ERR ]  field=### <item>      error_type=heading-mismatch
+        Heading 'AC1 - missing dashes' does not match pattern
+        '^AC\d+ — .+ — `(must|should|nice)` · `(draft|in_progress|verified|descoped)`$'
 ```
-
-(`## Problem` and `## Goals` are required body sections per the
-section-rules — the validator's body-section enforcement runs only when
-they're declared via a `body_section:` conditional. For a hard "this
-section MUST appear" check at the body-rules level, use the conditional
-`body_section:` prefix in `conditional_required_fields` — see
-[frontmatter-rules](frontmatter-rules.md#body_section-prefix-conditional-body-sections).)
 
 ## What the LSP sees
 
 Open `prd-002-broken-example.md` in an editor with the LSP:
 
-- A red squiggle under `created: not-a-date` (the regex error).
-- A yellow squiggle under `status: shippping` (state-machine warning).
-- A red squiggle on the `validation_rules:` line (template-only leak).
-- The `## Acceptance Criteria` H2 carries an inlay hint:
-  `(implementing: 0, verified by: 0)`.
-- The `template:` line carries a code-lens action: `↗ 0 backlinks · ⬆ 1
-  acceptance criteria · ⏱ updated 0d ago`.
+- A red squiggle under `created: not-a-date` (the pattern-mismatch).
+- A red squiggle under `status: shippping` (the enum-violation).
+- A red squiggle on missing `rice` field (required-missing).
+- The `template:` line carries a code-lens action:
+  `↗ 0 backlinks · ⏱ updated Xd ago`.
 
-A code-action quick-fix for the `validation_rules:` warning offers
-"Delete from frontmatter". A code-action for a "Missing required field"
-diagnostic on `rice` offers "Insert placeholder".
+A code-action quick-fix for a "Missing required field" diagnostic
+offers "Insert placeholder".
 
 ## What this example does NOT cover
 

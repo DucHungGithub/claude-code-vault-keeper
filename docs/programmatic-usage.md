@@ -6,7 +6,7 @@ of it — CI gates, bulk-rewrites, custom reporters, editor integrations,
 dashboards that surface vault state — without shelling out to the CLI.
 
 All modules are pure ESM (`"type": "module"` in `package.json`); import
-them from a Bun or Node ≥ 18 project that depends on the package.
+them from a Bun or Node >= 18 project that depends on the package.
 
 ```bash
 bun add claude-code-vault-keeper
@@ -17,23 +17,29 @@ bun add file:../claude-code-vault-keeper
 ## The barrel
 
 `import` directly from the package name to get the public surface —
-parsers, validators, formatter, the orchestrator, config helpers, and
-the LSP-side per-buffer validator are all re-exported from one barrel:
+parsers, validators, schema engine, formatter, the orchestrator, config
+helpers, and the LSP-side per-buffer validator are all re-exported from
+one barrel:
 
 ```js
 import {
   // I/O
   parseDocument, resolveDocPath,
 
-  // Parsing
-  parseBody, parseSectionRules, loadTemplateSectionRules, findSectionRuleBlocks,
-
   // Template rules
-  loadTemplateRules, normalizeRules,
+  loadTemplateRules,
+
+  // Template body parsing
+  parseBodySchema, findSectionRuleBlocks,
+
+  // Schema engine (composable validation primitives)
+  applyFieldSchema,
+  applyBodySchema,
+  validateTemplateSchema,
+  validateBodyTemplateSchema,
 
   // Validators (pure)
   CONFIG,
-  applyRules,
   validateTemplateField,
   validateTemplateMetaLeak,
   validateSlug, validatePaths, validateSectionRulesLeak, suggestSlug,
@@ -43,14 +49,18 @@ import {
   // Formatter
   formatVaultDocument, formatVaultDocumentAsync,
 
-  // Conditional DSL (used by validation_rules.conditional_required_fields)
+  // Conditional DSL (used by `when` modifiers in field schema)
   evaluateCondition, getField,
 
   // Vault config
   resolveProjectRoot, loadVaultConfig,
 
+  // Utils
+  deepFreeze,
+
   // Orchestrator (file-walking + per-doc validation)
   validateDocument, findDocuments, findAllFiles, validateLinkExistence,
+  runValidateCli,
 
   // LSP-side variant — validates an in-memory buffer, no FS scan
   validateBuffer,
@@ -67,11 +77,11 @@ per logical module:
 
 | Subpath | What's there |
 |---|---|
-| `claude-code-vault-keeper/parser` | `parseBody` |
 | `claude-code-vault-keeper/doc-io` | `parseDocument`, `resolveDocPath` |
-| `claude-code-vault-keeper/template-rules` | `loadTemplateRules`, `normalizeRules` |
-| `claude-code-vault-keeper/template-section-rules` | `parseSectionRules`, `loadTemplateSectionRules`, `getRequiredSections`, `findSectionRuleBlocks` |
-| `claude-code-vault-keeper/validators` | `applyRules`, `validateSlug`, `validatePaths`, `validateSectionRulesLeak`, … `CONFIG` |
+| `claude-code-vault-keeper/template-rules` | `loadTemplateRules` |
+| `claude-code-vault-keeper/template-section-rules` | `parseBodySchema`, `findSectionRuleBlocks` |
+| `claude-code-vault-keeper/schema-engine` | `applyFieldSchema`, `applyBodySchema`, `validateTemplateSchema`, `validateBodyTemplateSchema` |
+| `claude-code-vault-keeper/validators` | `validateTemplateField`, `validateSlug`, `validatePaths`, `validateSectionRulesLeak`, ... `CONFIG` |
 | `claude-code-vault-keeper/formatter` | `formatVaultDocument`, `formatVaultDocumentAsync` |
 | `claude-code-vault-keeper/conditional-eval` | `evaluate`, `getField` |
 | `claude-code-vault-keeper/vault-config` | `resolveProjectRoot`, `loadVaultConfig` |
@@ -113,7 +123,7 @@ Result shape:
   skipped?: boolean,             // true for template files
   errors: Issue[],
   warnings: Issue[],
-  rulesSource: string | null,    // template path that supplied validation_rules
+  rulesSource: string | null,    // template path that supplied the schema
   frontmatter: {                 // a small projected subset
     template?: string,
     status?: string,
@@ -123,10 +133,11 @@ Result shape:
 
 type Issue = {
   level: 'error' | 'warning',
-  field: string,                 // dot-path or synthetic tag
+  field: string,                 // dot-path, synthetic tag, or heading path
   message: string,
   fix?: string,
-  error_type?: string,           // stable machine tag for some errors
+  error_type?: string,           // stable machine tag (16 defined types)
+  bodyLine?: number,             // 1-indexed body-relative line (body issues only)
 };
 ```
 
@@ -173,46 +184,71 @@ const invalid = results.filter((r) => !r.valid);
 console.log(`${results.length - invalid.length}/${results.length} valid`);
 ```
 
-> `process.chdir(root)` + setting `CLAUDE_PROJECT_DIR` are the same
-> rebind that the CLI's `main()` performs — every downstream resolver
-> derives paths from cwd / that env var.
-
 ## Loading template rules directly
 
-When you want to introspect or report on a template's rules without
+When you want to introspect or report on a template's schema without
 running a validation pass:
 
 ```js
 import { loadTemplateRules } from 'claude-code-vault-keeper';
 
-const rules = await loadTemplateRules('templates/note-template.md', root);
+const schema = await loadTemplateRules('templates/note-template.md', root);
 
-if (!rules) {
-  console.error('template missing or has no validation_rules block');
+if (!schema) {
+  console.error('template missing or has malformed frontmatter');
 } else {
-  console.log('required:', rules.required_fields);
-  console.log('path_regex:', rules.path_regex);
-  console.log('state machine:', rules.state_machine);
+  console.log('fields:', schema.fields);
+  console.log('strict:', schema.strict);
+  console.log('sections:', schema.sections);
+  console.log('tier:', schema.tier);
+  console.log('body schema nodes:', schema.bodySchema.length);
+  console.log('template errors:', schema.templateErrors);
 }
 ```
 
-Returns `null` for any failure (file missing, malformed YAML, no
-`validation_rules` block). Cached internally — call as often as you like.
+Returns `null` for any failure (file missing, malformed YAML).
+Otherwise returns `{ fields, strict, sections, tier, bodySchema,
+templateErrors }`.
 
-## Applying rules to in-memory frontmatter
+## Applying the schema engine directly
 
-`applyRules` is pure — feed it a normalized rules object + a frontmatter
-object + the body text, get back an `Issue[]`. Useful for editor
-integrations that haven't written the file to disk yet.
+`applyFieldSchema` and `applyBodySchema` are pure functions — feed
+them a schema + data, get back issues. Useful for editor integrations
+that haven't written the file to disk yet.
+
+### Frontmatter validation
 
 ```js
-import { loadTemplateRules, applyRules } from 'claude-code-vault-keeper';
+import { applyFieldSchema } from 'claude-code-vault-keeper';
 
-const rules = await loadTemplateRules('templates/note-template.md', root);
-const frontmatter = { template: 'templates/note-template.md', title: 'Hi' };
-const body = '## Relationships\n';
+const schema = { fields: { title: { required: true }, status: { enum: ['draft', 'done'] } } };
+const frontmatter = { template: 'templates/note.md', title: 'Hi', status: 'oops' };
+const docMeta = { repoRelativePath: 'docs/notes/note-001.md' };
 
-const issues = applyRules(rules, frontmatter, body, 'docs/notes/note-001.md');
+const issues = applyFieldSchema(schema, frontmatter, docMeta);
+// → [{ level: 'error', field: 'status', message: "Value 'oops' is not in ...", error_type: 'enum-violation' }]
+```
+
+### Body validation
+
+```js
+import { applyBodySchema, parseBodySchema } from 'claude-code-vault-keeper';
+
+// parseBodySchema extracts BodySchemaNode[] from a template's markdown body
+const bodySchema = parseBodySchema(templateBodyMarkdown);
+
+const bodyIssues = applyBodySchema(bodySchema, documentBodyMarkdown);
+// → BodyIssue[] with { level, field, message, error_type, bodyLine? }
+```
+
+### Template meta-validation
+
+```js
+import { validateTemplateSchema, validateBodyTemplateSchema } from 'claude-code-vault-keeper';
+
+const fieldErrors = validateTemplateSchema(fieldsSchema);
+const bodyErrors = validateBodyTemplateSchema(bodySchema);
+// → Issue[] with error_type: 'template-schema-invalid'
 ```
 
 ## Validating an unsaved buffer (LSP-style)
@@ -242,38 +278,6 @@ const { issues, lineMap, skipped } = await validateBuffer({
 Each issue carries a `line` (0-indexed, document-absolute) so editors
 can render diagnostics at the right position.
 
-## Parsing the body separately
-
-`parseBody` returns the structured body sections + warnings emitted by
-the body parser (the same warnings the LSP surfaces as `field=body`
-diagnostics).
-
-```js
-import {
-  parseBody,
-  loadTemplateSectionRules,
-} from 'claude-code-vault-keeper';
-
-const sectionRules = await loadTemplateSectionRules(
-  'templates/prd-template.md',
-  root,
-);
-
-const parsed = await parseBody(body, { formatHints: sectionRules });
-
-// Structured body data — pick what you need:
-parsed.relationships;       // typed edges from ## Relationships
-parsed.acceptanceCriteria;  // AC entities + implementing/verifying refs
-parsed.userStories;         // PRD → story refinements
-parsed.contributions;       // ## Contributions log
-parsed.statusHistory;       // ## Status History rows
-parsed.phaseHistory;        // ## Phase History rows
-parsed.riceScore;           // RICE Score table
-parsed.shipTimeline;        // Ship Timeline + extensions
-parsed.derived;             // computed lifecycle timestamps
-parsed.warnings;            // body-format diagnostics
-```
-
 ## Canonical formatting
 
 The same rewrites the CLI applies on `vault-keeper-format` / the LSP
@@ -296,7 +300,7 @@ frontmatter re-ordering.
 
 ## Building a custom reporter
 
-Pure result data → render however you want.
+Pure result data — render however you want.
 
 ```js
 import { validateDocument, findDocuments } from 'claude-code-vault-keeper';
@@ -304,7 +308,7 @@ import { validateDocument, findDocuments } from 'claude-code-vault-keeper';
 const docs = await findDocuments();
 const results = await Promise.all(docs.map((d) => validateDocument(d)));
 
-// Group errors by error_type tag (only some issues carry one)
+// Group errors by error_type tag
 const byType = new Map();
 for (const r of results) {
   for (const err of r.errors) {
@@ -321,71 +325,27 @@ for (const [tag, items] of byType) {
 }
 ```
 
-Stable `error_type` tags currently emitted:
+Stable `error_type` tags (16 types):
 
-| Tag | Where |
+| Tag | Trigger |
 |---|---|
-| `path-regex-mismatch` | Template `path_regex` did not match the doc path. |
-| `path-regex-bad-regex` | Template's `path_regex` does not compile. |
-| `bundle-readme-template-mismatch` | Bundle README declared the wrong template (or none). |
-
-## Building a dashboard
-
-`parseBody` + `parseDocument` + `findDocuments` are the right ingredients
-for a "what's in my vault?" view. The example below walks every doc and
-emits a CSV of status + owner + AC count — feed it into a spreadsheet,
-a Markdown report, or a static-site generator.
-
-```js
-import {
-  findDocuments,
-  parseDocument,
-  parseBody,
-  loadTemplateRules,
-  resolveProjectRoot,
-} from 'claude-code-vault-keeper';
-
-const root = resolveProjectRoot({ root: '/abs/path/to/vault' });
-process.chdir(root);
-process.env.CLAUDE_PROJECT_DIR = root;
-
-const docs = await findDocuments();
-const rows = [];
-
-for (const filepath of docs) {
-  const { frontmatter, body, error } = await parseDocument(filepath);
-  if (error) continue;
-
-  // Optional: pull the template's `body_section_formats` so parseBody
-  // emits warnings in the same vocabulary the LSP uses.
-  const rules = await loadTemplateRules(frontmatter.template, root);
-  const parsed = await parseBody(body, {
-    formatHints: rules?.body_section_formats,
-  });
-
-  rows.push({
-    path: filepath,
-    template: frontmatter.template ?? '',
-    status: frontmatter.status ?? '',
-    owner: frontmatter.owner ?? '',
-    title: frontmatter.title ?? '',
-    relationships: parsed.relationships.length,
-    acs: parsed.acceptanceCriteria.length,
-    contributions: parsed.contributions.length,
-    statusHistoryLen: parsed.statusHistory.length,
-    started_at: parsed.derived.started_at,
-    shipped_at: parsed.derived.shipped_at,
-    warnings: parsed.warnings.length,
-  });
-}
-
-// Emit CSV (or JSON, or feed into any view layer)
-const headers = Object.keys(rows[0]);
-console.log(headers.join(','));
-for (const r of rows) {
-  console.log(headers.map((h) => JSON.stringify(r[h] ?? '')).join(','));
-}
-```
+| `type-mismatch` | Value doesn't match declared `type` |
+| `enum-violation` | Value not in `enum` list |
+| `pattern-mismatch` | Value doesn't match `pattern` regex |
+| `min-violation` | Value/length/count below `min` |
+| `max-violation` | Value/length/count above `max` |
+| `unique-violation` | Array contains duplicates (`uniqueItems: true`) |
+| `required-missing` | Required field or section is missing |
+| `exists-missing` | Referenced file does not exist (`exists: true`) |
+| `path-mismatch` | Synthetic `$path` pattern failed |
+| `undeclared-field` | Frontmatter key not in schema (`strict: true`) |
+| `heading-mismatch` | Body heading doesn't match `heading.pattern` or `heading.enum` |
+| `table-shape` | Required table missing or missing required columns |
+| `list-item` | Required list missing, or item doesn't match `item.pattern` |
+| `code-missing` | Required code fence missing or wrong language |
+| `formula-violation` | Formula evaluated to `false` or value non-numeric |
+| `cardinality` | Repeatable heading count outside `min`/`max` bounds |
+| `template-schema-invalid` | The template itself has schema errors |
 
 ## Pre-commit script example
 
@@ -412,45 +372,12 @@ for (const f of staged) {
   const r = await validateDocument(f);
   if (r.valid) continue;
   failed++;
-  console.error(`\n❌ ${f}`);
+  console.error(`\n${f}`);
   for (const e of r.errors) console.error(`   ${e.field}: ${e.message}`);
 }
 
 process.exit(failed > 0 ? 1 : 0);
 ```
-
-Hook it up in `.git/hooks/pre-commit`:
-
-```bash
-#!/usr/bin/env bash
-exec bun ./scripts/vault-precommit.mjs
-```
-
-## Invoking the CLI from another script
-
-For one-off cases where importing is overkill, the CLI emits a stable
-JSON shape with `--json`:
-
-```bash
-bun cli/validate-documents.js --root /path/to/vault --json
-```
-
-```js
-import { execFileSync } from 'node:child_process';
-
-const out = execFileSync('bun', [
-  'cli/validate-documents.js',
-  '--root', '/path/to/vault',
-  '--json',
-], { cwd: '/path/to/claude-code-vault-keeper', encoding: 'utf-8' });
-
-const { summary, results } = JSON.parse(out);
-console.log(`invalid: ${summary.invalid}, warnings: ${summary.warningCount}`);
-```
-
-`results[].filepath`, `.valid`, `.errors[]`, `.warnings[]` mirror the
-in-process API exactly. Exit code is `1` on any invalid doc (or any
-warning when `--strict` is passed), `0` otherwise.
 
 ## See also
 
@@ -459,4 +386,4 @@ warning when `--strict` is passed), `0` otherwise.
 - [Architecture](architecture.md) — module-by-module data flow.
 - [Vault config](vault-config.md) — what `loadVaultConfig` returns.
 - [Templates / Frontmatter rules](templates/frontmatter-rules.md) —
-  the `validation_rules` vocabulary `applyRules` enforces.
+  the composable field primitives `applyFieldSchema` enforces.

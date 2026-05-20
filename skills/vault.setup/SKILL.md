@@ -1,6 +1,6 @@
 ---
 name: vault.setup
-description: "Onboard a fresh repo to claude-code-vault-keeper — interview the user for vault shape (vault root, document types, path regex, owner format), scaffold `.claude/vault-keeper.json` + per-type templates with `validation_rules`, then verify the setup with `vault-keeper validate`. Wraps `vault-keeper init` rather than reinventing it; adds the interactive shaping `init` cannot do on its own. Use when the user says 'setup vault', 'init vault-keeper', 'bật vault-keeper cho repo này', 'thêm template mới', 'add document type', '/vault.setup'."
+description: "Onboard a fresh repo to claude-code-vault-keeper — interview the user for vault shape (vault root, document types, path pattern, owner format), scaffold `.claude/vault-keeper.json` + per-type templates with `fields:` schema and body `section-rules`, then verify the setup with `vault-keeper validate`. Wraps `vault-keeper init` rather than reinventing it; adds the interactive shaping `init` cannot do on its own. Use when the user says 'setup vault', 'init vault-keeper', 'bật vault-keeper cho repo này', 'thêm template mới', 'add document type', '/vault.setup'."
 ---
 
 # vault.setup — onboard a repo to vault-keeper
@@ -23,8 +23,8 @@ Ask exactly these in ONE batched `AskUserQuestion` call:
 
 - **vault root folder** — where vault documents live. Default `docs`. Options to surface: `docs`, `notes`, `vault`, `.` (whole repo).
 - **document types** — which kinds of docs this vault tracks. Multi-select: `note`, `task`, `prd`, `decision`, `meeting`, `other` (free-form). Drives how many templates to scaffold.
-- **path regex strictness** — `strict` (each type lives in its own folder, e.g. `docs/tasks/t-NNN-slug.md`) vs `loose` (any path under vault root, no naming enforcement).
-- **owner convention** — `@github-handle`, `email`, `freeform`. Drives the `field_rules` for the `owner` field.
+- **path pattern strictness** — `strict` (each type lives in its own folder, e.g. `docs/tasks/t-NNN-slug.md` — adds a `$path: { pattern }` field to the template) vs `loose` (any path under vault root, no `$path` constraint).
+- **owner convention** — `@github-handle`, `email`, `freeform`. Drives the `pattern` primitive on the `owner` field.
 
 > Do NOT ask all of these in narrative prose. Use the `AskUserQuestion` tool. One call. The user picks; you proceed.
 
@@ -34,16 +34,18 @@ Run `vault-keeper init <vault-root> [--force]` to lay down the minimal skeleton 
 
 After `init` completes, you have:
 - `.claude/vault-keeper.json` with `{ vaultRoot, vaultFolders }`
-- `templates/note-template.md` with a baseline `validation_rules`
+- `templates/note-template.md` with a baseline `fields:` schema
 - One sample doc under `<vault-root>/notes/note-001-hello.md`
 
 ### Step 3 — extend templates per the interview answers
 
-For each additional document type the user selected (beyond `note`), create `templates/<type>-template.md` using the **strict** or **loose** path_regex they chose. Copy the shape from `examples/example/templates/<type>-template.md` — those files are the canonical reference. Apply the owner convention to `field_rules`:
+For each additional document type the user selected (beyond `note`), create `templates/<type>-template.md` using the **strict** or **loose** path pattern they chose. Copy the shape from `examples/example/templates/<type>-template.md` — those files are the canonical reference. Templates use a `fields:` block for frontmatter validation and `section-rules` fences in the body for body validation.
 
-- `@github-handle` → `{ field: owner, type: string, pattern: "^@[a-z0-9-]+$" }`
-- `email` → `{ field: owner, type: string, pattern: ".+@.+\\..+" }`
-- `freeform` → no rule on owner
+Apply the owner convention to the `owner` field entry in `fields:`:
+
+- `@github-handle` → `owner: { type: string, pattern: "^@[a-z0-9-]+$" }`
+- `email` → `owner: { type: string, pattern: ".+@.+\\..+" }`
+- `freeform` → `owner: { type: string }` (no `pattern`)
 
 ### Step 4 — verify
 
@@ -59,14 +61,14 @@ Skip scaffold. Ask the user via `AskUserQuestion`:
 
 Then:
 
-- **add new type** → `ls templates/` to list current ones, ask for the new type name + path_regex shape, create the new template file modeled on the closest existing one, run validate.
+- **add new type** → `ls templates/` to list current ones, ask for the new type name + `$path` pattern shape, create the new template file (with `fields:` block + body `section-rules` fences) modeled on the closest existing one, run validate.
 - **edit existing** → open the chosen template with the user, propose the edit explicitly (diff), apply only on confirmation, run validate.
 - **change config** → edit `.claude/vault-keeper.json` directly, run `vault-keeper doctor` then `validate`.
 - **re-validate only** → just run `validate` and report.
 
 ## Refusal contract
 
-If the user asks for something the plugin CANNOT enforce via `validation_rules` (e.g. cross-document graph rules, custom-language frontmatter parsing), say so explicitly and point at `CLAUDE.md`'s template-vs-code-branch rule. Do not add hardcoded vault knowledge to plugin JS. This skill never edits files under `cli/`, `lib/`, or `server/`.
+If the user asks for something the plugin CANNOT enforce via the `fields:` schema or body `section-rules` primitives (e.g. cross-document graph rules, custom-language frontmatter parsing), say so explicitly and point at `CLAUDE.md`'s template-vs-code-branch rule. Do not add hardcoded vault knowledge to plugin JS. This skill never edits files under `cli/`, `lib/`, or `server/`.
 
 ## Output contract
 

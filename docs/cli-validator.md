@@ -63,6 +63,32 @@ even if your vault is nested inside another git repository.
 The validator never writes anywhere outside stdout/stderr — safe to run on
 read-only runners.
 
+## What the validator checks per document
+
+For each markdown document, the validator runs:
+
+1. **Template field** — `template:` must be present, start with
+   `templates/`, end with `.md`.
+2. **Template meta leak** — flags `template_path`, `template_version`,
+   `template_id` keys that leaked from a template into an instance.
+3. **Section-rules leak** — a `yaml section-rules` code fence in a
+   non-template document is flagged.
+4. **Slug** — every folder segment + filename must be
+   lowercase-kebab-case.
+5. **Paths** — relative paths in body/frontmatter trigger warnings.
+6. **Schema engine: `applyFieldSchema`** — composable field primitives
+   (required, type, enum, pattern, min/max, uniqueItems, exists,
+   `$path` synthetic field, strict mode).
+7. **Schema engine: `applyBodySchema`** — body section-rules (required
+   sections, heading match, table/list/code/formula validation,
+   repeatable headings with cardinality).
+
+CLI-only additional passes:
+
+8. **Cross-document orphan detection** — incoming-link graph.
+9. **Asset slug pass** — non-markdown files.
+10. **Bundle README re-include scan**.
+
 ## Human-readable output
 
 Default output is a banner-style report intended for terminal use:
@@ -72,34 +98,34 @@ Default output is a banner-style report intended for terminal use:
 VAULT TEMPLATE VALIDATION REPORT
 ============================================================
 
-📊 SUMMARY
+SUMMARY
 Total Documents: 12
-✅ Valid: 11/12 (91.7%)
-❌ Invalid: 1
-⚠️  Warnings: 3
-🚨 Errors: 2
+Valid: 11/12 (91.7%)
+Invalid: 1
+Warnings: 3
+Errors: 2
 
-📁 BY DOCUMENT TYPE
-✅ note: 8/8 (100.0%)
-⚠️ prd: 3/4 (75.0%)
+BY DOCUMENT TYPE
+note: 8/8 (100.0%)
+prd: 3/4 (75.0%)
 
-🔍 TOP ISSUES
+TOP ISSUES
    2x - title: Missing required field
    1x - owner: Missing required field
 
-❌ INVALID DOCUMENTS (1)
+INVALID DOCUMENTS (1)
 
-📄 product-knowledge/02-product/prds/prd-007-foo.md
-   🚨 title: Missing required field: title
-      💡 Fix: Add title to frontmatter
-   🚨 owner: Missing required field: owner
-      💡 Fix: Add owner to frontmatter
+docs/prds/prd-007-foo.md
+   title: Missing required field: title
+      Fix: Add 'title' to frontmatter
+   owner: Missing required field: owner
+      Fix: Add 'owner' to frontmatter
 
 ============================================================
 ```
 
 `Top issues` ranks the five most-common error / warning categories. Each
-invalid document gets a per-issue line plus a `💡 Fix` hint pulled from
+invalid document gets a per-issue line plus a fix hint pulled from
 the rule definition.
 
 ## JSON output (`--json`)
@@ -123,9 +149,7 @@ Actions step output, or an artifact uploader.
       "note": { "total": 8, "valid": 8, "invalid": 0 },
       "prd":  { "total": 4, "valid": 3, "invalid": 1 }
     },
-    "byFolder": {
-      "product-knowledge/02-product": { "total": 4, "valid": 3, "invalid": 1 }
-    },
+    "byFolder": { ... },
     "commonIssues": {
       "title: Missing required field": 1,
       "owner: Missing required field": 1
@@ -133,15 +157,16 @@ Actions step output, or an artifact uploader.
   },
   "results": [
     {
-      "filepath": "product-knowledge/02-product/prds/prd-007-foo.md",
+      "filepath": "docs/prds/prd-007-foo.md",
       "docType": "prd",
       "valid": false,
       "errors": [
         {
           "level": "error",
           "field": "title",
-          "message": "Missing required field: title",
-          "fix": "Add title to frontmatter"
+          "message": "Required field 'title' is missing",
+          "fix": "Add 'title' to frontmatter",
+          "error_type": "required-missing"
         }
       ],
       "warnings": [],
@@ -203,8 +228,6 @@ Issues from the asset pass appear in the results array with
 ## Performance notes
 
 - Template files are loaded once and cached for the rest of the run.
-- The body parser is invoked at most once per file (cache is shared with
-  cross-document orphan checks).
 - A full-vault scan of ~500 docs typically runs in <1 second on warm
   Bun runtime.
 

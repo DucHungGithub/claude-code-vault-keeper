@@ -73,12 +73,12 @@ bundle README mechanism.
 ## Where filename rules live
 
 Filename + folder-placement rules belong to **templates**, not to vault
-config. Each template self-declares a `path_regex` inside its own
-`validation_rules` block. The plugin matches the regex against every
-instance's repo-relative path.
+config. Each template self-declares path constraints via the `$path`
+synthetic field inside its `fields:` block. The plugin matches the
+pattern against every instance's repo-relative path.
 
-See [templates/folder-and-naming](templates/folder-and-naming.md#path_regex)
-for the regex authoring guide and bundle README pattern.
+See [templates/folder-and-naming](templates/folder-and-naming.md#path-synthetic-field)
+for the pattern authoring guide and bundle README pattern.
 
 ## Caching
 
@@ -124,7 +124,7 @@ This is what [`examples/example/`](../examples/example) ships.
 ```
 
 Filename conventions for `knowledge/decisions/` and `knowledge/runbooks/`
-live inside each template's `path_regex`, not here.
+live inside each template's `$path` field, not here.
 
 ### Vault rooted at the repo root (default)
 
@@ -142,6 +142,6 @@ intent shows up in the repo.
 
 - [Naming conventions](naming-conventions.md) — the slug rule.
 - [Templates / Folder & filename rules](templates/folder-and-naming.md)
-  — template-declared `path_regex`.
+  — template-declared `$path` synthetic field.
 - [CLI validator](cli-validator.md) — `--root`, `--path` semantics.
 - [LSP features](lsp-features.md) — how `vaultFolders` gates the LSP.

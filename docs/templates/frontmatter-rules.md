@@ -1,122 +1,243 @@
 # Frontmatter rules
 
-The `validation_rules` block in a template's frontmatter declares the
-schema that every instance of that template must satisfy. This page
-covers the rules that govern frontmatter:
+The `fields:` block in a template's frontmatter declares the schema
+that every instance of that template must satisfy. Each field entry is
+an object whose keys are **composable primitives** — small, independent
+constraints that combine freely.
 
-- [`required_fields`](#required_fields)
-- [`optional_fields`](#optional_fields)
-- [`conditional_required_fields`](#conditional_required_fields)
-- [`field_rules`](#field_rules)
-- [`state_machine`](#state_machine)
+This page covers:
+
+- [Primitives reference](#primitives-reference)
+- [Shorthand vs expanded form](#shorthand-vs-expanded-form)
+- [Conditional `when` DSL](#conditional-when-dsl)
+- [Strict mode](#strict-mode)
 
 For folder / filename / body rules see
 [folder-and-naming](folder-and-naming.md) and [body-rules](body-rules.md).
 
 ---
 
-## `required_fields`
+## Primitives reference
 
-A flat list of frontmatter dot-paths that must resolve to a non-empty
-value (`undefined`, `null`, or empty string fail).
+Each key inside a field entry is a **primitive** — a pure validation
+function `(value, param, ctx) => Issue[]`. The engine applies every
+declared primitive independently.
 
-```yaml
-validation_rules:
-  required_fields: [template, document_type, title, owner, status]
-```
+### `required` (boolean)
 
-Dot-paths work for nested keys:
-
-```yaml
-required_fields:
-  - template
-  - metadata.author
-  - metadata.created_at
-```
-
-If `metadata.author` is missing or empty the validator emits:
-
-```
-[ERR ] field=metadata.author  Missing required field: metadata.author
-       fix: Add metadata.author to frontmatter
-```
-
-### Notes
-
-- The check is "non-empty value" — `0` and `false` count as present.
-  Empty arrays and empty objects do NOT pass (`""`, `null`, `undefined`
-  fail).
-- Order in the list is irrelevant — each path is checked independently.
-
----
-
-## `optional_fields`
-
-Pure documentation — the validator does not enforce anything on
-`optional_fields`. Use it to communicate to instance authors which keys
-are permitted but not required:
+The field must be present and non-empty (`undefined`, `null`, or empty
+string fail). `0` and `false` count as present.
 
 ```yaml
-validation_rules:
-  required_fields: [template, title, owner]
-  optional_fields: [tags, related_url, deadline]
-```
-
-Future tooling (e.g. the completion provider) may use this list to drive
-suggestions. The CLI validator currently ignores it.
-
----
-
-## `conditional_required_fields`
-
-Required only when a DSL condition matches the instance's frontmatter.
-Each entry is an object:
-
-```yaml
-validation_rules:
-  conditional_required_fields:
-    - condition: "status in ['approved', 'shipped']"
-      field: shipped_date
-      required: true
-    - condition: "doc_type in ['feature']"
-      field: design_link
-      required: true
-      severity: warning
-```
-
-### Entry shape
-
-| Key | Type | Required | Meaning |
-|---|---|---|---|
-| `condition` | string (DSL) | yes | Tiny DSL evaluated against frontmatter; see [DSL grammar](#dsl-grammar) |
-| `field` | string (dot-path) | yes | Frontmatter key that becomes required when the condition matches |
-| `required` | bool | one-of-two | `true` → field must be present + non-empty |
-| `min_count` | int | one-of-two | Field must be an array of at least this length |
-| `severity` | string | no | `"warning"` (default `"error"`) — emit at warning level instead of error |
-
-Exactly one of `required: true` or `min_count: <int>` should be set per
-entry.
-
-### `body_section:` prefix — conditional body sections
-
-A `field:` value that starts with `body_section:` switches the check
-from "frontmatter key present" to "body H2 heading present":
-
-```yaml
-conditional_required_fields:
-  - condition: "prd_type in ['feature', 'enhancement']"
-    field: "body_section:## Ship Timeline"
+fields:
+  title:
     required: true
 ```
 
-When `prd_type` is `feature` or `enhancement`, the instance body must
-contain a `## Ship Timeline` H2 heading. Code blocks (``` … ``` and
-~~~ … ~~~) are stripped before the heading scan, so headings inside
-fenced code don't count as "present".
+Supports the `when` modifier for conditional requirements:
 
-### DSL grammar
+```yaml
+fields:
+  shipped_date:
+    required: { when: "status in ['approved', 'shipped']" }
+    type: string
+    pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+```
 
-The condition language is intentionally narrow. Grammar:
+When the condition does not match, the `required` check is skipped
+silently.
+
+---
+
+### `type` (string)
+
+Declares the expected JavaScript type of the field value. Allowed
+values: `string`, `integer`, `number`, `boolean`, `date`, `array`.
+
+```yaml
+fields:
+  estimate_hours:
+    type: integer
+  tags:
+    type: array
+  created:
+    type: string
+```
+
+`integer` requires `typeof value === "number" && Number.isInteger(value)`.
+A string `"50"` fails — YAML must parse it as a bare number.
+
+Error type: `type-mismatch`.
+
+---
+
+### `enum` (array)
+
+Value must appear in the list.
+
+```yaml
+fields:
+  status:
+    type: string
+    enum: [draft, review, approved, shipped, dropped]
+  prd_type:
+    type: string
+    enum: [feature, enhancement, fix]
+```
+
+Error type: `enum-violation`. The fix message lists all allowed values.
+
+---
+
+### `pattern` (string — regex)
+
+Value (coerced to string) must match the regex. The string is compiled
+with `new RegExp()` at runtime — escape backslashes in YAML.
+
+```yaml
+fields:
+  created:
+    type: string
+    required: true
+    pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+```
+
+Error type: `pattern-mismatch`.
+
+---
+
+### `min` / `max` (number)
+
+Numeric bounds. The target depends on the declared `type`:
+
+| Declared `type` | What `min`/`max` compare | Label in error |
+|---|---|---|
+| `string` | `value.length` | "Length" |
+| `integer` / `number` | `value` itself | "Value" |
+| `array` | `value.length` | "Count" |
+
+**Meta-validation enforces:** `min`/`max` require a declared `type` on
+the same field. A template that uses `min: 1` without `type` produces a
+`template-schema-invalid` error.
+
+```yaml
+fields:
+  rice.reach:
+    type: integer
+    min: 1
+  rice.confidence:
+    type: integer
+    min: 1
+```
+
+Error types: `min-violation`, `max-violation`.
+
+---
+
+### `uniqueItems` (boolean)
+
+Only meaningful for `type: array`. When `true`, the array must not
+contain duplicate entries.
+
+```yaml
+fields:
+  tags:
+    type: array
+    uniqueItems: true
+```
+
+Error type: `unique-violation`.
+
+---
+
+### `exists` (boolean)
+
+When `true`, the string value is treated as a file path and checked
+for existence on disk. Useful for `design_link` or `artifact_path`
+fields that should reference real files.
+
+```yaml
+fields:
+  design_link:
+    type: string
+    exists: true
+```
+
+Error type: `exists-missing`.
+
+---
+
+### `description` (string)
+
+Metadata-only — emits nothing. Use it to document a field's purpose
+inside the template:
+
+```yaml
+fields:
+  rice:
+    required: { when: "prd_type in ['feature']" }
+    description: "RICE score object — reach, impact, confidence, effort"
+```
+
+---
+
+## Shorthand vs expanded form
+
+Every primitive supports two notations:
+
+**Shorthand** — the primitive value directly:
+
+```yaml
+fields:
+  status:
+    enum: [draft, review, approved]
+```
+
+**Expanded** — an object with `value` plus optional modifiers (`when`,
+`severity`, `message`):
+
+```yaml
+fields:
+  due_date:
+    required:
+      value: true
+      when: "status in ['approved', 'shipped']"
+      severity: warning
+      message: "Approved items should have a due date"
+```
+
+The engine normalizes shorthand to expanded form internally. The
+modifier keys are:
+
+| Modifier | Type | Effect |
+|---|---|---|
+| `value` | any | The constraint parameter (same as the shorthand value) |
+| `when` | string (DSL) | Skip this constraint unless the condition matches |
+| `severity` | `"error"` or `"warning"` | Override the default severity (default: `"error"`) |
+| `message` | string | Override the default error message |
+
+### Special case: `required`
+
+`required: { when: "..." }` defaults `value` to `true` — you don't
+need to write `value: true` explicitly:
+
+```yaml
+# These are equivalent:
+shipped_date:
+  required: { when: "status in ['approved', 'shipped']" }
+
+shipped_date:
+  required: { value: true, when: "status in ['approved', 'shipped']" }
+```
+
+---
+
+## Conditional `when` DSL
+
+The `when` modifier uses a small boolean DSL evaluated against the
+instance's frontmatter.
+
+### Grammar
 
 ```
 expr        := or_expr
@@ -128,13 +249,12 @@ field       := IDENT ( '.' IDENT )*
 string      := single-quoted | double-quoted
 ```
 
-Examples:
+### Examples
 
 ```
 status in ['approved', 'shipped']
 prd_type in ['feature'] and status not in ['draft', 'review']
 priority in ['must', 'should'] or owner in ['@alice', '@bob']
-metadata.kind in ['feature']
 ```
 
 The only operators are `in`, `not in`, `and`, `or`. Dotted field paths
@@ -142,140 +262,115 @@ are supported. String literals must be single- or double-quoted. There
 is no equality operator, no arithmetic, no functions — by design (the
 DSL is meant to be readable in a template by a non-engineer).
 
-### What happens on evaluation
+### Evaluation behavior
 
 - The DSL is evaluated against the instance's parsed frontmatter object.
-- If the condition matches → the field is checked.
-- If the condition does not match → the entry is skipped silently.
-- A DSL parse error or evaluation error produces ONE error diagnostic
-  with `field: "validation_rules"` so the template author sees the
-  problem.
+- If the condition matches, the constraint fires.
+- If the condition does not match, the constraint is skipped silently.
+- A DSL syntax error in the template produces a `template-schema-invalid`
+  error during meta-validation.
 
 ---
 
-## `field_rules`
+## Strict mode
 
-Per-field rules that govern the **value** of a present field. The
-validator skips empty values (those are `required_fields`' territory).
-
-```yaml
-validation_rules:
-  field_rules:
-    - field: created
-      regex: "^\\d{4}-\\d{2}-\\d{2}$"
-    - field: status
-      values: [draft, review, approved, shipped]
-    - field: rice.reach
-      type: integer
-      min: 1
-```
-
-Each entry targets one `field` (dot-path) and applies one or more of:
-
-### `regex` (string)
-
-Value must match this regex. The string is compiled with `new RegExp()`
-at runtime — escape backslashes correctly in YAML.
+When a template declares `strict: true` at the frontmatter top level
+(outside `fields:`), any frontmatter key in an instance that is NOT
+declared in the template's `fields:` block produces an error:
 
 ```yaml
-- field: ticket_id
-  regex: "^[A-Z]+-\\d+$"
+---
+template_path: templates/strict-note.md
+document_type: note
+strict: true
+fields:
+  template:
+    required: true
+  title:
+    required: true
+---
 ```
 
-A non-string value automatically fails the regex check.
-
-**Special case: native YAML dates.** When YAML 1.1 parses `created:
-2026-05-12` into a JavaScript `Date` object, the regex check accepts it
-silently (YAML already validated the date format). Only `Invalid Date`
-sentinels are flagged.
-
-### `values` (array — enum)
-
-Value must appear in the list.
+An instance with an undeclared key:
 
 ```yaml
-- field: priority
-  values: [must, should, nice]
+---
+template: templates/strict-note.md
+title: Hello
+random_key: oops
+---
 ```
 
-If `priority: critical` appears in an instance, the validator emits:
-
 ```
-[ERR ] field=priority  Invalid priority: 'critical'
-       fix: Use one of: must, should, nice
+[ERR ] field=random_key  Undeclared field 'random_key' is not in the schema
+       fix: Remove 'random_key' or declare it in the template fields
 ```
 
-### `type: integer`
-
-Value must be an integer (`Number.isInteger`). `1.5` fails. Strings of
-digits fail (they're not numbers).
-
-```yaml
-- field: rice.reach
-  type: integer
-```
-
-### `min` (number)
-
-Numeric lower bound (inclusive).
-
-```yaml
-- field: rice.confidence
-  min: 0.1
-```
-
-Negative `min` works (`min: -1` permits `-1` and above).
-
-### Combining rules
-
-Multiple rule fields on one entry all apply:
-
-```yaml
-- field: rice.reach
-  type: integer
-  min: 1
-- field: status
-  values: [draft, review, approved]
-  regex: "^[a-z][a-z_]+$"
-```
-
-Each violation produces a separate diagnostic.
+Error type: `undeclared-field`.
 
 ---
 
-## `state_machine`
+## Combining primitives
 
-Declares the lifecycle of the `status` field as a transition graph.
+Multiple primitives on one field all apply independently:
 
 ```yaml
-validation_rules:
-  state_machine:
-    draft:    [review, dropped]
-    review:   [approved, draft]
-    approved: [shipped, draft]
-    shipped:  []
-    dropped:  []
+fields:
+  status:
+    type: string
+    required: true
+    enum: [draft, review, approved, shipped, dropped]
+  created:
+    type: string
+    required: true
+    pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+  estimate_hours:
+    type: integer
+    min: 1
 ```
 
-### What the validator checks
+Each violation produces a separate diagnostic. If `required` fails
+(value missing), the remaining primitives on that field are skipped —
+there is nothing to validate.
 
-- If `frontmatter.status` exists and is **not** a declared key of the
-  state machine, emit one **warning**:
+---
 
-  ```
-  [WARN] field=status  Status 'shippping' is not declared in template state_machine
-         fix: Use one of: draft, review, approved, shipped, dropped
-  ```
+## Dot-path fields
 
-The transition graph (`draft: [review, dropped]`) is **declarative
-metadata** — the validator does not currently verify history transitions
-against it. Tools that build on top of the validator (board generators,
-agent skills) read the graph to suggest next states, but the validator
-itself only checks that the current `status` is a known node.
+Field names support dot notation for nested frontmatter:
 
-This is intentional: history-table parsing is the body parser's job, and
-keeping the state machine as a pure schema declaration means it works
-for any vault — no per-domain history table format assumption.
+```yaml
+fields:
+  rice.reach:
+    type: integer
+    min: 1
+  rice.confidence:
+    type: integer
+    min: 1
+```
+
+The engine resolves `rice.reach` by walking
+`frontmatter.rice.reach`.
+
+---
+
+## Meta-validation
+
+The engine validates the template itself before enforcing it on
+instances. Template-level issues use error type
+`template-schema-invalid`:
+
+- Unknown primitive key on a field.
+- Invalid `type` value (not in `string`, `integer`, `number`,
+  `boolean`, `date`, `array`).
+- Invalid regex in `pattern`.
+- `enum` is not a non-empty array.
+- `min`/`max` is not a number, or is used without a declared `type`.
+- Invalid `when` DSL syntax.
+- Synthetic field uses a disallowed primitive.
+
+Meta-validation runs at template load time and the issues appear in
+`templateErrors` on the loaded schema object.
 
 ---
 
@@ -283,62 +378,73 @@ for any vault — no per-domain history table format assumption.
 
 ```yaml
 ---
-template_path: templates/feature-template.md
-document_type: feature
-validation_rules:
-  required_fields:
-    - template
-    - document_type
-    - title
-    - owner
-    - status
-  optional_fields:
-    - tags
-    - design_link
-  conditional_required_fields:
-    - condition: "status in ['shipped']"
-      field: shipped_date
-      required: true
-    - condition: "priority in ['must']"
-      field: rice
-      required: true
-    - condition: "rice.reach in ['high', 'medium']"
-      field: "body_section:## Risk Assessment"
-      required: true
-      severity: warning
-  field_rules:
-    - field: created
-      regex: "^\\d{4}-\\d{2}-\\d{2}$"
-    - field: priority
-      values: [must, should, nice]
-    - field: rice.reach
-      type: integer
-      min: 1
-    - field: rice.confidence
-      type: integer
-      min: 1
-  state_machine:
-    draft:    [review, dropped]
-    review:   [approved, draft]
-    approved: [shipped, draft]
-    shipped:  []
-    dropped:  []
+template_path: templates/prd-template.md
+document_type: prd
+tier: PRODUCT
+sections:
+  - problem
+  - goals
+  - acceptance-criteria
+  - ship-timeline
+  - outcome
+  - "*"
+  - relationships
+fields:
+  $path:
+    pattern: "^docs/prds/prd-\\d{3}-[a-z0-9-]+\\.md$"
+  template:
+    required: true
+  document_type:
+    required: true
+  title:
+    required: true
+  owner:
+    required: true
+  status:
+    type: string
+    required: true
+    enum: [draft, review, approved, shipped, dropped]
+  created:
+    type: string
+    required: true
+    pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+  tags:
+    type: array
+  design_link:
+    type: string
+  shipped_date:
+    type: string
+    required: { when: "status in ['approved', 'shipped']" }
+    pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+  prd_type:
+    type: string
+    enum: [feature, enhancement, fix]
+  priority:
+    type: string
+    enum: [must, should, nice]
+  rice:
+    required: { when: "prd_type in ['feature']" }
+  rice.reach:
+    type: integer
+    min: 1
+  rice.confidence:
+    type: integer
+    min: 1
 ---
 ```
 
 An instance must declare at least `template`, `document_type`, `title`,
-`owner`, `status` (else hard errors). If `status: shipped` it must also
-declare `shipped_date`. `created` must be `YYYY-MM-DD`. `priority` must
-be one of three values. `rice.reach` must be an integer ≥ 1. The
-`status` field is checked against the declared state machine (warning
-on unknown).
+`owner`, `status` (else hard errors). If `status` is `approved` or
+`shipped`, `shipped_date` becomes required. `created` must be
+`YYYY-MM-DD`. `status` must be one of five values. `rice.reach` must be
+an integer >= 1. The `$path` synthetic field ensures the document lives
+at the correct filesystem location.
 
 ## See also
 
-- [Folder & filename rules](folder-and-naming.md) — `path_regex`,
-  naming conventions.
-- [Body rules](body-rules.md) — `sections[]`, body section-rules code
-  fences.
+- [Folder & filename rules](folder-and-naming.md) — `$path` synthetic
+  field, slug rules.
+- [Body rules](body-rules.md) — body section-rules code fences.
 - [Full example](full-example.md) — end-to-end template + instance.
 - [Troubleshooting](../troubleshooting.md) — common rule-author errors
   with fixes.

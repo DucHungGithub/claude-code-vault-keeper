@@ -30,23 +30,25 @@ const VALIDATE = join(REPO, 'cli', 'validate-documents.js');
 
 let vault;
 
-// Minimal template with a validation_rules block: required `title`, a
-// path_regex, and the body Relationships section the engine knows.
+// Minimal template with a fields: schema block: required fields and a path pattern.
 const MINI_TEMPLATE = `---
 template_path: templates/note-template.md
 document_type: note
-validation_rules:
-  tier: KNOWLEDGE
-  required_fields: [template, document_type, title, owner]
-  path_regex: "^docs/notes/"
+tier: KNOWLEDGE
+fields:
+  template:
+    required: true
+  document_type:
+    required: true
+  title:
+    required: true
+  owner:
+    required: true
+  $path:
+    pattern: "^docs/notes/"
 ---
 
 # Note Template
-
-\`\`\`yaml section-rules
-relationships:
-  required: false
-\`\`\`
 
 ## Relationships
 `;

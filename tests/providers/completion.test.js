@@ -78,35 +78,21 @@ function makeDocs(uri, text) {
 }
 
 /**
- * Write a minimal prd-template.md with a `validation_rules` block.
+ * Write a minimal prd-template.md with a `fields:` schema block.
  */
 function writePrdTemplate(sandbox) {
   const content = `---
 template_id: "prd-template"
 template_path: "templates/prd-template.md"
-validation_rules:
-  tier: PRODUCT
-  allowed_predicates:
-    - name: implements_bet
-      target_tiers:
-        - STRATEGY
-      counts_for_tracing: true
-    - name: refines
-      target_tiers:
-        - PRODUCT
-      counts_for_tracing: true
-    - name: references
-      target_tiers:
-        - '*'
-      counts_for_tracing: false
-  required_fields:
-    - template
-    - status
-  field_rules:
-    - field: status
-      values: [draft, review, approved, shipped, cancelled]
-    - field: phase
-      values: [inception, build, launch]
+tier: PRODUCT
+fields:
+  template:
+    required: true
+  status:
+    required: true
+    enum: [draft, review, approved, shipped, cancelled]
+  phase:
+    enum: [inception, build, launch]
 ---
 # PRD Template
 `;
@@ -114,25 +100,19 @@ validation_rules:
 }
 
 /**
- * Write a task-template.md for WORK tier predicate filtering tests.
+ * Write a task-template.md for WORK tier.
  */
 function writeTaskTemplate(sandbox) {
   const content = `---
 template_id: "task-template"
 template_path: "templates/task-template.md"
-validation_rules:
-  tier: WORK
-  allowed_predicates:
-    - name: satisfies_ac
-      target_tiers:
-        - PRODUCT
-      counts_for_tracing: true
-  required_fields:
-    - template
-    - status
-  field_rules:
-    - field: status
-      values: [todo, in_progress, done]
+tier: WORK
+fields:
+  template:
+    required: true
+  status:
+    required: true
+    enum: [todo, in_progress, done]
 ---
 # Task Template
 `;
@@ -171,7 +151,6 @@ describe("capability export", () => {
   test("has completionProvider with triggerCharacters", () => {
     expect(capability.completionProvider).toBeDefined();
     expect(capability.completionProvider.triggerCharacters).toContain("*");
-    expect(capability.completionProvider.triggerCharacters).toContain("@");
     expect(capability.completionProvider.triggerCharacters).toContain("(");
     expect(capability.completionProvider.triggerCharacters).toContain(":");
     expect(capability.completionProvider.resolveProvider).toBe(false);
@@ -338,61 +317,6 @@ status:
       position: { line: 1, character: 7 }, // after `status:`, no template field → []
     });
     expect(result).toEqual([]);
-  });
-});
-
-describe("@handle completions", () => {
-  test("returns User items for people files", async () => {
-    setupSandbox();
-    const connection = makeConnection();
-    const docText = `---
-template: templates/prd-template.md
-status: draft
----
-
-Owner: @`;
-    const uri = pathToFileURL(join(SANDBOX, "product-knowledge/02-product/prds/test.md")).href;
-    const docs = makeDocs(uri, docText);
-    register({ connection, docs, vaultIndex: makeVaultIndex(), projectRoot: SANDBOX });
-
-    const result = await connection._invoke({
-      textDocument: { uri },
-      position: { line: 5, character: 8 }, // cursor after `@`
-    });
-
-    expect(Array.isArray(result)).toBe(true);
-    expect(result.length).toBeGreaterThan(0);
-
-    const labels = result.map((i) => i.label);
-    expect(labels).toContain("@bob");
-    expect(labels).toContain("@alice");
-
-    for (const item of result) {
-      expect(item.kind).toBe(6); // CompletionItemKind.Variable (User is undefined in vscode-languageserver v9)
-    }
-  });
-
-  test("partial handle filters results", async () => {
-    setupSandbox();
-    const connection = makeConnection();
-    const docText = `---
-template: templates/prd-template.md
-status: draft
----
-
-Owner: @bo`;
-    const uri = pathToFileURL(join(SANDBOX, "product-knowledge/02-product/prds/test.md")).href;
-    const docs = makeDocs(uri, docText);
-    register({ connection, docs, vaultIndex: makeVaultIndex(), projectRoot: SANDBOX });
-
-    const result = await connection._invoke({
-      textDocument: { uri },
-      position: { line: 5, character: 10 },
-    });
-
-    const labels = result.map((i) => i.label);
-    expect(labels).toContain("@bob");
-    expect(labels).not.toContain("@alice");
   });
 });
 

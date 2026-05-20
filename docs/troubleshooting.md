@@ -2,8 +2,9 @@
 
 Common error messages, what they mean, and how to fix them.
 
-For each entry: the diagnostic's `level` + `field` + `message` excerpt,
-followed by **What** (interpretation) and **Fix** (concrete steps).
+For each entry: the diagnostic's `level` + `field` + `error_type` +
+`message` excerpt, followed by **What** (interpretation) and **Fix**
+(concrete steps).
 
 ## Frontmatter / template resolution
 
@@ -33,20 +34,19 @@ doesn't end with `.md`.
 mistakes:
 
 ```yaml
-template: prd-template.md                 # ❌ missing templates/ prefix
-template: ./templates/prd-template.md     # ❌ relative path
-template: /templates/prd-template.md      # ❌ absolute path
-template: templates/prd-template          # ❌ missing .md extension
-template: templates/prd-template.md       # ✅
+template: prd-template.md                 # missing templates/ prefix
+template: ./templates/prd-template.md     # relative path
+template: /templates/prd-template.md      # absolute path
+template: templates/prd-template          # missing .md extension
+template: templates/prd-template.md       # correct
 ```
 
 ---
 
-### `[ERR] field=template — Cannot load validation_rules from template '<path>' …`
+### `[ERR] field=template — Cannot load template`
 
 **What:** The validator found the `template:` field but could not load
-the file, or the file has no `validation_rules:` block in its
-frontmatter, or its frontmatter is malformed YAML.
+the file, or its frontmatter is malformed YAML.
 
 **Fix:** Three checks, in order:
 
@@ -55,23 +55,16 @@ frontmatter, or its frontmatter is malformed YAML.
 2. **Frontmatter parses.** Open the template, check the YAML between
    `---` fences. A common gotcha: a value contains `:` and isn't
    quoted (`description: line: 1` is invalid YAML).
-3. **`validation_rules:` block present.** The template's frontmatter
-   must contain a top-level `validation_rules:` key, even if it's
-   empty:
-
-   ```yaml
-   ---
-   template_path: templates/note-template.md
-   validation_rules: {}
-   ---
-   ```
+3. **Has valid frontmatter.** The template's frontmatter must be a
+   valid YAML object (even if `fields:` is absent — the template may
+   carry body section-rules or other top-level keys).
 
 ---
 
-### `[WARN] field=<field> — Template-only field "<field>" leaked into instance from template scaffold`
+### `[WARN] field=<field> — Template-only field "<field>" leaked into instance`
 
 **What:** Your instance frontmatter contains a key that belongs only
-to templates: `validation_rules`, `template_version`, or `template_id`.
+to templates: `template_path`, `template_version`, or `template_id`.
 These typically leak via copy-paste from a template scaffold.
 
 **Fix:** Remove the key from your instance's frontmatter:
@@ -80,81 +73,73 @@ These typically leak via copy-paste from a template scaffold.
 ---
 template: templates/note-template.md
 title: My note
-# validation_rules: ...     ← delete this whole block
+# template_path: ...     <- delete this
 ---
 ```
 
 The LSP's code-action quick-fix offers an automated "Delete from
 frontmatter" for this warning.
 
-## Required fields + field rules
+## Field schema errors (composable primitives)
 
-### `[ERR] field=<field> — Missing required field: <field>`
+### `[ERR] error_type=required-missing — Required field '<field>' is missing`
 
-**What:** A field listed in the template's `required_fields` is
-absent, `null`, or an empty string.
+**What:** A field with `required: true` (or conditional `required` whose
+`when` condition matched) is present in the template schema but absent,
+`null`, or empty string in the instance.
 
-**Fix:** Add the field with a non-empty value:
+**Fix:** Add the field with a non-empty value. The LSP code-action
+quick-fix offers an "Insert placeholder."
+
+---
+
+### `[ERR] error_type=type-mismatch — Expected type '<type>', got '<actual>'`
+
+**What:** The field value doesn't match the declared `type` in the
+template schema.
+
+**Fix:** Common fixes:
 
 ```yaml
-required_fields: [template, title, owner]
+# type: integer — use an unquoted number
+rice:
+  reach: 50        # correct (number)
+  reach: "50"      # wrong (string)
+
+# type: array — use a YAML list
+tags: [ai, ml]     # correct
+tags: "ai, ml"     # wrong (string)
+
+# type: boolean — use unquoted true/false
+active: true       # correct
+active: "true"     # wrong (string)
 ```
 
-```yaml
 ---
-template: templates/note-template.md
-title: My note
-owner: '@alice'         ← was missing
----
-```
 
-The LSP code-action quick-fix offers an "Insert placeholder" — handy
-for getting a syntactically-valid placeholder in place quickly.
+### `[ERR] error_type=enum-violation — Value '<value>' is not in allowed values: [...]`
+
+**What:** The field value isn't in the template's `enum` list.
+
+**Fix:** Use one of the permitted values listed in the error message.
 
 ---
 
-### `[ERR] field=<field> — Required when <condition>`
+### `[ERR] error_type=pattern-mismatch — Value '<value>' does not match pattern '<regex>'`
 
-**What:** A `conditional_required_fields` entry's DSL condition
-matched, so the field becomes required. The message includes the
-condition verbatim.
-
-**Fix:** Either:
-
-1. **Add the required field** with a real value.
-2. **Change the trigger field** so the condition no longer matches.
-   E.g. if the rule is `condition: "status in ['shipped']"
-   field: shipped_date`, set `status: approved` (the condition won't
-   match) — but only if the doc genuinely isn't shipped yet.
-
----
-
-### `[ERR] field=<field> — Need at least <N> entries when <condition>`
-
-**What:** A `conditional_required_fields` entry uses `min_count: N`
-and the field is an array shorter than `N`.
-
-**Fix:** Either add more entries to the array, or change the trigger
-field so the condition no longer matches.
-
----
-
-### `[ERR] field=<field> — Value '<value>' fails regex <regex>`
-
-**What:** A `field_rules` entry's `regex` didn't match the field's
-value.
+**What:** The field value doesn't match the template's `pattern` regex.
 
 **Fix:** Edit the value to match the regex. Common patterns:
 
 ```yaml
-field: created
-regex: "^\\d{4}-\\d{2}-\\d{2}$"      # YYYY-MM-DD
+# Date: YYYY-MM-DD
+pattern: "^\\d{4}-\\d{2}-\\d{2}$"
 
-field: ticket_id
-regex: "^[A-Z]+-\\d+$"               # PROJ-123 shape
+# Ticket ID: PROJ-123
+pattern: "^[A-Z]+-\\d+$"
 
-field: version
-regex: "^\\d+\\.\\d+\\.\\d+$"        # SemVer
+# SemVer
+pattern: "^\\d+\\.\\d+\\.\\d+$"
 ```
 
 YAML backslash escaping: write `\\d` (double-backslash) so the
@@ -162,78 +147,69 @@ resulting JS string is `\d`.
 
 ---
 
-### `[ERR] field=<field> — Invalid <field>: '<value>'`
+### `[ERR] error_type=min-violation / max-violation`
 
-**What:** A `field_rules` entry's `values:` enum doesn't include the
-value you supplied.
+**What:** A numeric value, string length, or array count is outside the
+declared `min`/`max` bounds.
 
-**Fix:** Use one of the permitted values listed in the error message.
-
----
-
-### `[ERR] field=<field> — Expected integer for <field>, got <type>: <value>`
-
-**What:** A `field_rules` entry sets `type: integer` but the value
-isn't an integer. Strings of digits fail (they're not numbers).
-
-**Fix:** Use an unquoted integer:
-
-```yaml
-# ❌
-rice:
-  reach: "50"
-
-# ✅
-rice:
-  reach: 50
-```
+**Fix:** Adjust the value to fall within bounds. The target depends on
+the declared `type`:
+- `string` -> `min`/`max` check string length
+- `integer` / `number` -> `min`/`max` check the value
+- `array` -> `min`/`max` check element count
 
 ---
 
-### `[ERR] field=<field> — Value <N> below minimum <M> for <field>`
+### `[ERR] error_type=unique-violation — Array contains duplicate items`
 
-**What:** A `field_rules` entry has `min: M` and the value is below
-that.
+**What:** A field with `uniqueItems: true` has duplicate entries.
 
-**Fix:** Use a value ≥ `M`.
+**Fix:** Remove the duplicate entries from the array.
 
 ---
 
-### `[WARN] field=status — Status '<value>' is not declared in template state_machine`
+### `[ERR] error_type=exists-missing — Referenced file does not exist`
 
-**What:** The `status` value doesn't match any declared key in the
-template's `state_machine`.
+**What:** A field with `exists: true` references a file path that
+doesn't exist on disk.
 
-**Fix:** Either use one of the declared states (listed in the error
-message), or extend the template's state machine to include the new
-state. The latter is appropriate when you're legitimately adding a new
-lifecycle state to the document type.
+**Fix:** Create the file or fix the path.
 
-## Folder / filename / slug
+---
 
-### `[ERR] field=location — Document path "<path>" does not match template's path_regex`
+### `[ERR] error_type=undeclared-field — Undeclared field '<key>'`
+
+**What:** The template uses `strict: true` and the instance has a
+frontmatter key not declared in the template's `fields:` block.
+
+**Fix:** Either remove the undeclared key from the instance, or add it
+to the template's `fields:` block.
+
+## Path / $path errors
+
+### `[ERR] error_type=pattern-mismatch (on field=$path)`
 
 **What:** The document's repo-relative path doesn't match the
-template's `path_regex`.
+template's `$path` pattern.
 
 **Fix:** Either:
 
-1. **Move/rename the file** to a path that matches the regex (the fix
-   line includes the regex pattern).
+1. **Move/rename the file** to a path that matches the pattern (the fix
+   line includes the regex).
 2. **Change the `template:` field** to a different template whose
-   `path_regex` accepts this path.
-3. **Loosen the template's regex** if your folder taxonomy genuinely
+   `$path` accepts this path.
+3. **Loosen the template's pattern** if your folder taxonomy genuinely
    evolved.
 
 ---
 
-### `[ERR] field=template — Template's path_regex is not a valid regex`
+### Template `$path` pattern doesn't compile
 
-**What:** The `path_regex` string in your template doesn't compile to
+**What:** The `$path` pattern string in your template doesn't compile to
 a valid `RegExp`.
 
-**Fix:** Inspect the regex source in the template's
-`validation_rules.path_regex`. Common gotchas:
+**Fix:** Inspect the regex in the template's `fields.$path.pattern`.
+Common gotchas:
 
 - Unescaped special characters: `(`, `)`, `[`, `]`, `+`, `*` need `\\`
   in YAML.
@@ -246,9 +222,9 @@ new RegExp("^docs/notes/note-\\d{3}-[a-z0-9-]+\\.md$")
 // throws if malformed
 ```
 
----
+## Folder / filename / slug
 
-### `[ERR] field=folder — Folder '<name>' violates slug convention …`
+### `[ERR] field=folder — Folder '<name>' violates slug convention`
 
 **What:** A folder segment in the path contains uppercase, spaces,
 underscores, or other non-slug characters.
@@ -257,7 +233,7 @@ underscores, or other non-slug characters.
 
 ---
 
-### `[ERR] field=filename — Filename '<name>' violates slug convention …`
+### `[ERR] field=filename — Filename '<name>' violates slug convention`
 
 **What:** The filename (or one of its dot-separated extension
 segments) violates the slug rule.
@@ -269,74 +245,105 @@ bypass this rule — see [naming-conventions](naming-conventions.md).
 The LSP code-action quick-fix offers an automated rename via
 `WorkspaceEdit`.
 
----
+## Body validation errors
 
-## Bundle README
+### `[ERR] error_type=required-missing — Required section '<heading>' is missing`
 
-### `[ERR] field=template — Bundle README has wrong template "<actual>". This path matches a content template's bundle pattern.`
+**What:** A section with `required: true` in its section-rules block
+is missing from the document body.
 
-**What:** A `<id>/README.md` sits at a path that some template's
-`path_regex` matches as a bundle root, but the README's own
-`template:` field is missing or set to `folder-readme-template.md`.
-The validator caught the mismatch.
-
-**Fix:** Set the README's `template:` field to one of the candidate
-content templates listed in the error message. Bundle-root READMEs
-declare the actual content template, NOT
-`folder-readme-template.md`.
-
-```yaml
-# docs/prds/prd-005-foo/README.md
----
-template: templates/prd-template.md          ← was "folder-readme-template.md" or missing
-title: Foo PRD
----
-```
-
-## Body parser warnings
-
-### `[WARN] code=body — Relationship bullet does not match expected format …`
-
-**What:** A bullet line under `## Relationships` doesn't match the
-canonical shape. The expected format string is included in the message.
-
-**Fix:** Rewrite the bullet to match. Canonical shape:
-
-```markdown
-- **<predicate>** [<title>](<path>) [— *<reason>*]
-```
-
-The canonical formatter (LSP format-on-save) auto-normalises many
-common deviations: `- predicate: [title](path)`,
-`- predicate [title](path)`, etc.
+**Fix:** Add the missing section heading to the document body.
 
 ---
 
-### `[WARN] code=body — AC heading does not match expected format …`
+### `[ERR] error_type=heading-mismatch — Heading '<text>' does not match pattern`
 
-**What:** An H3 under `## Acceptance Criteria` doesn't match the
-canonical shape.
+**What:** A heading in the document body doesn't match the
+`heading.pattern` or `heading.enum` declared in the template's
+section-rules.
 
-**Fix:** Canonical form: `### AC<n> — <title> — \`<priority>\` ·
-\`<status>\``. The formatter auto-normalises some variants (`AC1:` →
-`AC1 —`).
+**Fix:** Edit the heading text to match the expected pattern. The error
+message includes the regex.
 
 ---
 
-### `[WARN] code=body — Found N relative path(s) in document body`
+### `[ERR] error_type=table-shape — Expected a table / missing required column`
 
-**What:** Your body contains markdown links written with relative
-paths (`./foo.md`, `../bar.md`) outside of fenced code blocks. The
-validator treats those as authoring smells — vault relative paths
-break when files move; absolute paths from the project root are more
-robust.
+**What:** A section requiring a `table` in its section-rules has no
+table, or the table is missing declared required columns.
 
-**Fix:** Replace relative paths with absolute (from project root) or
-move the link inside a fenced code block if it's actually code/
-example markup.
+**Fix:** Add the table with the required column headers.
 
-The LSP code-action quick-fix offers a "Replace with absolute path"
-action for this warning.
+---
+
+### `[ERR] error_type=list-item — List item does not match pattern`
+
+**What:** A list item in a section doesn't match the `list.item.pattern`
+declared in section-rules.
+
+**Fix:** Edit the list item to match the expected pattern.
+
+---
+
+### `[ERR] error_type=code-missing — Expected a code fence`
+
+**What:** A section requiring a `code` block has no fenced code block
+(or no fence matching the required `lang`).
+
+**Fix:** Add a fenced code block with the required language tag.
+
+---
+
+### `[ERR] error_type=formula-violation — Formula evaluated to false`
+
+**What:** A `formula` expression in section-rules evaluated to `false`
+against the table's key-value map, or a table value was non-numeric.
+
+**Fix:** Check the table data — the formula is an arithmetic expression
+that must evaluate to `true`.
+
+---
+
+### `[ERR] error_type=cardinality — Expected at least/at most N sections`
+
+**What:** A repeatable heading's match count is below `min` or above
+`max`.
+
+**Fix:** Add or remove matching headings to satisfy the cardinality
+constraint.
+
+## Template meta-validation
+
+### `[ERR] error_type=template-schema-invalid`
+
+**What:** The template itself has schema errors. These are caught during
+template loading, before any instance validation runs.
+
+**Fix:** Check the template's `fields:` block and body section-rules
+for:
+
+- Unknown primitive keys (e.g. a typo like `requred` instead of
+  `required`).
+- Invalid `type` value (allowed: `string`, `integer`, `number`,
+  `boolean`, `date`, `array`).
+- Invalid regex in `pattern` or `heading.pattern`.
+- `enum` that isn't a non-empty array.
+- `min`/`max` used without a declared `type`.
+- Invalid `when` DSL syntax.
+- Synthetic field (`$path`) using a disallowed primitive.
+- Unknown key in a section-rules block.
+- Invalid `formula` expression syntax.
+
+## Section-rules leak
+
+### `[ERR] error_type=section-rules-leak`
+
+**What:** A `` ```yaml section-rules `` code fence was found in a
+non-template document. This construct belongs in templates only.
+
+**Fix:** Remove the section-rules code fence from your document. If
+you meant to document the construct, wrap it in an outer code fence
+so it's treated as plain text.
 
 ## CLI / runtime
 
@@ -375,8 +382,8 @@ If `summary.total === 0`, your scan found no documents — check
 
 ### Validator says all docs are valid, but the LSP shows diagnostics
 
-**What:** The LSP runs the per-doc subset of rules + body-parser
-shape warnings. The CLI in non-strict mode reports only errors.
+**What:** The LSP runs the per-doc subset of rules. The CLI in
+non-strict mode reports only errors.
 
 **Fix:** Run the CLI with `--strict` to see the warnings the LSP is
 flagging:
@@ -404,28 +411,6 @@ root.
 4. The LSP bundle is present at `server/main.bundled.cjs`. If not,
    `bun run build`.
 5. `.lsp.json` exists and points at the bundle.
-
-The Claude Code LSP console (visible inside the editor) prints
-`claude-code-vault-keeper: projectRoot=…` on initialize. If that
-line shows `(unresolved)` the LSP couldn't find a vault root — add a
-`.claude/vault-keeper.json` file or a `templates/` directory.
-
-## Performance / scale
-
-### CLI feels slow on a huge vault
-
-**What:** First-run cost is dominated by reading every file + parsing
-every body. Typical: ~500 files in <1s on warm Bun; larger vaults
-scale linearly.
-
-**Fix options:**
-
-- Run `--path` instead of full-vault when you only care about a
-  subtree.
-- For CI: rely on PR-level glob filters to scope the validator to
-  only-changed files via a `find $CHANGED_FILES` loop.
-- Move heavy `regex` patterns to template-local scope (so they only
-  fire on matching documents) rather than as global `field_rules`.
 
 ## Where to file a bug
 

@@ -147,62 +147,6 @@ describe("code-action: no match", () => {
   });
 });
 
-// ── Tests: V14 — move frontmatter relationships to body ───────────────────────
-
-describe("code-action: V14 legacy relationships fixer", () => {
-  test("produces a quickfix CodeAction", async () => {
-    const d = diag(
-      "relationships.implements",
-      "V14: legacy frontmatter field 'relationships.implements' must live in body. Move data to body section '## Relationships'.",
-      4,
-    );
-    const actions = await getActions(FM_WITH_RELATIONSHIPS, [d]);
-    expect(actions.length).toBeGreaterThan(0);
-    const act = actions[0];
-    expect(act.kind).toBe("quickfix");
-    expect(act.title).toMatch(/relationships/i);
-  });
-
-  test("edit deletes the frontmatter relationships block", async () => {
-    const uri = "file:///vault/product-knowledge/02-product/prds/My%20PRD.md";
-    const d = diag("relationships.implements", "V14: legacy frontmatter field 'relationships.implements' must live in body.", 4);
-    const actions = await getActions(FM_WITH_RELATIONSHIPS, [d]);
-    const act = actions[0];
-    const edits = act.edit?.changes?.[uri];
-    expect(Array.isArray(edits)).toBe(true);
-    // At least one edit deletes the relationships block
-    const deleteEdit = edits.find((e) => e.newText === "");
-    expect(deleteEdit).toBeDefined();
-    // Deletion starts at the relationships: line (line 4 in 0-indexed)
-    expect(deleteEdit.range.start.line).toBe(4);
-  });
-
-  test("edit inserts ## Relationships body section", async () => {
-    const uri = "file:///vault/product-knowledge/02-product/prds/My%20PRD.md";
-    const d = diag("relationships.implements", "V14: legacy frontmatter field 'relationships.implements' must live in body.", 4);
-    const actions = await getActions(FM_WITH_RELATIONSHIPS, [d]);
-    const act = actions[0];
-    const edits = act.edit?.changes?.[uri];
-    const insertEdit = edits.find((e) => e.newText.includes("## Relationships"));
-    expect(insertEdit).toBeDefined();
-    // The inserted text includes the extracted edge paths
-    expect(insertEdit.newText).toMatch(/dibb-001-foo\.md/);
-  });
-
-  test("does NOT fire for V13 message on relationships code", async () => {
-    // V13 message doesn't start with 'V14:' so no fixer should match
-    const d = diag(
-      "relationships.implements",
-      "V13: required body section 'Relationships' is missing.",
-      4,
-    );
-    const actions = await getActions(FM_WITH_RELATIONSHIPS, [d]);
-    // V14 fixer won't fire because message doesn't start with V14:
-    const v14Actions = actions.filter((a) => a.title?.includes("relationships"));
-    expect(v14Actions.length).toBe(0);
-  });
-});
-
 // ── Tests: Template-meta leak fixer ──────────────────────────────────────────
 
 describe("code-action: template-meta leak fixer", () => {
@@ -390,35 +334,3 @@ describe("code-action: relative path fixer", () => {
   });
 });
 
-// ── Tests: idempotency ────────────────────────────────────────────────────────
-
-describe("code-action: idempotency checks", () => {
-  test("V14 fixer: body section already has ## Relationships → appends, no duplicate heading", async () => {
-    const textWithExistingSection = `---
-template: templates/prd-template.md
-status: draft
-owner: @alice
-relationships:
-  implements:
-    - path: product-knowledge/01-strategy/dibbs/dibb-001-foo.md
----
-
-## Summary
-
-Body text.
-
-## Relationships
-
-- implements: [[product-knowledge/01-strategy/dibbs/dibb-002-bar.md]]
-`;
-    const uri = "file:///vault/product-knowledge/02-product/prds/My%20PRD.md";
-    const d = diag("relationships.implements", "V14: legacy frontmatter field 'relationships.implements' must live in body.", 4);
-    const actions = await getActions(textWithExistingSection, [d]);
-    expect(actions.length).toBeGreaterThan(0);
-    const act = actions[0];
-    const edits = act.edit?.changes?.[uri];
-    // Insert edit should NOT contain "## Relationships" (heading already exists)
-    const insertEdit = edits.find((e) => e.newText.length > 0);
-    expect(insertEdit?.newText).not.toMatch(/^## Relationships/m);
-  });
-});

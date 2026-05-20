@@ -134,7 +134,7 @@ the explicit walkthrough — three concepts, three steps.
 A vault needs three things:
 
 1. **Templates** — at least one markdown file under `templates/` whose
-   frontmatter declares a `validation_rules:` block.
+   frontmatter declares a `fields:` block (composable schema primitives).
 2. **Documents** — markdown files whose frontmatter declares
    `template: templates/<your-template>.md`.
 3. **(Optional) config** — `.claude/vault-keeper.json` if your folder layout
@@ -172,13 +172,23 @@ cat > templates/note-template.md <<'EOF'
 ---
 template_path: templates/note-template.md
 document_type: note
-validation_rules:
-  required_fields: [template, document_type, title, owner]
-  optional_fields: [tags, status]
-  field_rules:
-    - field: status
-      values: [draft, review, approved]
-  path_regex: "^notes/"
+tier: KNOWLEDGE
+fields:
+  $path:
+    pattern: "^notes/"
+  template:
+    required: true
+  document_type:
+    required: true
+  title:
+    required: true
+  owner:
+    required: true
+  tags:
+    type: array
+  status:
+    type: string
+    enum: [draft, review, approved]
 ---
 
 # Note template
@@ -188,14 +198,13 @@ Body sections this template expects.
 ## Relationships
 
 ```yaml section-rules
-relationships:
-  required: false
+required: false
 ```
 EOF
 ````
 
 See [templates/frontmatter-rules](templates/frontmatter-rules.md) for the
-full `validation_rules` vocabulary.
+full composable field primitives vocabulary.
 
 ### Step 4 — write a conforming document
 

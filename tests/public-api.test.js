@@ -35,19 +35,18 @@ describe("public API — barrel", () => {
     expect(typeof mod.parseDocument).toBe("function");
     expect(typeof mod.resolveDocPath).toBe("function");
 
-    // Body parsing
-    expect(typeof mod.parseBody).toBe("function");
-
     // Template rules
     expect(typeof mod.loadTemplateRules).toBe("function");
-    expect(typeof mod.normalizeRules).toBe("function");
-    expect(typeof mod.parseSectionRules).toBe("function");
-    expect(typeof mod.loadTemplateSectionRules).toBe("function");
-    expect(typeof mod.getRequiredSections).toBe("function");
+    expect(typeof mod.parseBodySchema).toBe("function");
     expect(typeof mod.findSectionRuleBlocks).toBe("function");
 
+    // Schema engine
+    expect(typeof mod.applyFieldSchema).toBe("function");
+    expect(typeof mod.applyBodySchema).toBe("function");
+    expect(typeof mod.validateTemplateSchema).toBe("function");
+    expect(typeof mod.validateBodyTemplateSchema).toBe("function");
+
     // Pure validators
-    expect(typeof mod.applyRules).toBe("function");
     expect(typeof mod.validateTemplateField).toBe("function");
     expect(typeof mod.validateTemplateMetaLeak).toBe("function");
     expect(typeof mod.validateSlug).toBe("function");
@@ -91,11 +90,11 @@ describe("public API — barrel", () => {
   });
 
   test("barrel exports are callable in their pure form", async () => {
-    const { applyRules, suggestSlug, evaluateCondition, getField } =
+    const { applyFieldSchema, suggestSlug, evaluateCondition, getField } =
       await import("../lib/index.js");
 
-    // applyRules — empty rules => no issues
-    const issues = applyRules({}, { template: "foo.md" }, "", "foo.md");
+    // applyFieldSchema — empty schema => no issues
+    const issues = applyFieldSchema({}, { template: "foo.md" }, "foo.md");
     expect(Array.isArray(issues)).toBe(true);
 
     // suggestSlug
@@ -111,19 +110,17 @@ describe("public API — barrel", () => {
 
 describe("public API — exports map", () => {
   const expectedSubpaths = {
-    ".": ["parseBody", "validateDocument"],
-    "./parser": ["parseBody"],
+    ".": ["applyFieldSchema", "validateDocument"],
     "./doc-io": ["parseDocument", "resolveDocPath"],
-    "./template-rules": ["loadTemplateRules", "normalizeRules"],
+    "./schema-engine": ["applyFieldSchema", "applyBodySchema", "validateTemplateSchema", "validateBodyTemplateSchema"],
+    "./template-rules": ["loadTemplateRules"],
     "./template-section-rules": [
-      "parseSectionRules",
-      "loadTemplateSectionRules",
-      "getRequiredSections",
+      "parseBodySchema",
       "findSectionRuleBlocks",
     ],
     "./formatter": ["formatVaultDocument", "formatVaultDocumentAsync"],
     "./conditional-eval": ["evaluate", "getField"],
-    "./validators": ["applyRules", "validateSlug", "validateSectionRulesLeak", "CONFIG"],
+    "./validators": ["validateSlug", "validateSectionRulesLeak", "CONFIG"],
     "./vault-config": ["resolveProjectRoot", "loadVaultConfig"],
     "./utils": ["deepFreeze"],
     "./orchestrator": ["validateDocument", "findDocuments", "findAllFiles"],

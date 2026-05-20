@@ -7,7 +7,7 @@
 | Verb | What it does |
 |---|---|
 | [`/vault.setup`](vault.setup/SKILL.md) | Interview-driven vault onboarding. Scaffolds `.claude/vault-keeper.json` + per-type templates, then validates. |
-| [`/vault.new <type> [slug]`](vault.new/SKILL.md) | Scaffolds a new doc from `templates/<type>-template.md` with frontmatter placeholders derived from `validation_rules`. |
+| [`/vault.new <type> [slug]`](vault.new/SKILL.md) | Scaffolds a new doc from `templates/<type>-template.md` with frontmatter placeholders derived from the `fields:` schema. |
 | [`/vault.health`](vault.health/SKILL.md) | Read-only digest of `vault-keeper doctor --json` + `vault-keeper validate --json`. Groups violations by template, folder, rule kind. |
 | [`/vault.fix`](vault.fix/SKILL.md) | Deterministic auto-format: frontmatter key order, section order, AC/relationship normalization, whitespace. Never invents values. |
 | [`/vault.changelog`](vault.changelog/SKILL.md) | Read-only remote changelog: `git fetch` → ahead/behind summary → what's new on `origin/<branch>` (vault-scoped) → recent activity, most-touched docs, top contributors. Never merges. |
@@ -28,7 +28,7 @@
 
 ## Plugin invariants
 
-Per the project's [authoring principle](../CLAUDE.md), every skill is **vault-agnostic** — no skill hardcodes a field name, template name, or path prefix. All vault-specific logic comes from the `validation_rules` block of a template, read at runtime.
+Per the project's [authoring principle](../CLAUDE.md), every skill is **vault-agnostic** — no skill hardcodes a field name, template name, or path prefix. All vault-specific logic comes from the template's `fields:` schema and body `section-rules` primitives, read at runtime.
 
 ## See also
 

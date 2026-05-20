@@ -30,14 +30,14 @@ stale state) and are otherwise ignored.
 | **diagnostics** | `didOpen`, `didChange` (250 ms debounce), `didSave` | Runs the per-doc subset of the CLI validator. |
 | **documentSymbol** | Editor request | Returns a hierarchical tree: frontmatter object + markdown headings. |
 | **workspaceSymbol** | Editor request | Vault-wide search by id (`<prefix>-NNN`), title, or filename. |
-| **hover** | Cursor hover | Frontmatter key → applicable validation rule. Markdown link → target title/status/owner. Id literal → target title. |
+| **hover** | Cursor hover | Frontmatter key -> applicable field schema. Markdown link -> target title/status/owner. Id literal -> target title. |
 | **definition** | Cursor on link / id | Navigate to the linked file. |
 | **references** | Editor request | Incoming markdown-link references (backlinks). |
 | **implementation** | Editor request | Delegates to `definition`. |
-| **completion** | `@`, `(`, `:` triggers | `@handle` people completions, link-target completions, frontmatter enum completions. |
-| **codeAction** | Diagnostic quick-fix prompt | Auto-fixes for `templateOnlyFields` leaks, missing required fields, filename rename, relative-path → absolute. |
-| **codeLens** | Editor request | Action lines above `template:`, `## Acceptance Criteria`, `## Ship Timeline`, `## Decision Log`. |
-| **inlayHint** | Editor request | Ghost-text after `## Relationships` (outgoing/incoming counts), AC headings (implementations / verifiers), relationship bullets (target status/phase), `status:` frontmatter (days-in-phase/status). |
+| **completion** | `(`, `:`, `#`, `/`, `*` triggers | Link-target completions, heading-anchor completions, template-path completions, frontmatter enum completions (driven by template `fields:` schema). |
+| **codeAction** | Diagnostic quick-fix prompt | Auto-fixes for template-only field leaks, missing required fields, filename rename, relative-path correction. |
+| **codeLens** | Editor request | Action line above `template:` showing backlink count + last-updated age. |
+| **inlayHint** | Editor request | Currently a no-op (returns empty array). See [inlay hints](#inlayhint) below. |
 | **rename** | Editor rename request / file move | Atomically renames a file and updates every markdown link pointing at it. |
 | **documentFormatting** | Format-on-save / explicit format | Applies the canonical formatter to the buffer. |
 
@@ -52,7 +52,7 @@ What runs:
 
 - `validateTemplateField` — `template:` field shape (present, starts with
   `templates/`, ends with `.md`).
-- `validateTemplateMetaLeak` — flags `validation_rules` / `template_id` /
+- `validateTemplateMetaLeak` — flags `template_path` / `template_id` /
   `template_version` keys that leaked from a template into an instance.
 - `validateSlug` — every folder segment + filename must be
   lowercase-kebab-case (see [naming-conventions](naming-conventions.md)).
@@ -63,11 +63,13 @@ What runs:
   is a template-authoring construct; finding one in a document is an
   error (see [body-rules](templates/body-rules.md)). Templates are
   exempt.
-- `applyRules(template.validation_rules, ...)` — required fields,
-  conditional required fields, field regex/enum/type/min, state machine.
-- Body parser warnings — section-format hints from
-  `validation_rules.body_section_formats` drive per-section format
-  messages (e.g. "Relationship bullet does not match expected format").
+- `applyFieldSchema` — composable field primitives: required (with
+  `when` conditions), type, enum, pattern, min/max, uniqueItems,
+  exists, `$path` synthetic field, strict mode undeclared-field check.
+- `applyBodySchema` — body section-rules: required sections, heading
+  pattern/enum matching, table column validation, list item pattern
+  matching, code fence requirements, formula evaluation, repeatable
+  heading cardinality.
 
 What does NOT run (CLI-only):
 
@@ -84,7 +86,7 @@ Each diagnostic is converted from a validator `Issue` to an LSP
 |---|---|
 | `level` (`error` / `warning`) | `severity` (Error / Warning) |
 | `message` + `fix` | `message` (the `fix:` line is appended) |
-| `field` (dot-path like `relationships.derived_from`) | `code` |
+| `field` (dot-path like `rice.reach` or heading path like `## Problem`) | `code` |
 | derived line number | `range.start.line` |
 
 `source` is always `"vault-keeper"`.
@@ -95,7 +97,7 @@ Returns the symbol tree as a nested array. Top level:
 
 1. **frontmatter** — `SymbolKind.Object` with one child per frontmatter
    key.
-2. **# H1 / ## H2 / ### H3 …** — each heading becomes a
+2. **# H1 / ## H2 / ### H3 ...** — each heading becomes a
    `SymbolKind.String` symbol; deeper headings nest under their parent.
 
 Useful for the editor's "outline" panel and "go to symbol in file"
@@ -119,11 +121,11 @@ Capped at 50 results per query.
 
 Context-aware. Cursor on:
 
-- **A frontmatter key** → shows the matching `validation_rules` entry
-  (e.g. "Required" / "Allowed values: …" / "Regex: …").
-- **A markdown link to a vault file** → shows the target's title +
+- **A frontmatter key** — shows the matching field schema from the
+  template (e.g. "Required" / "Allowed values: ..." / "Pattern: ...").
+- **A markdown link to a vault file** — shows the target's title +
   status + owner (from the cached frontmatter).
-- **An id literal in body text** (e.g. `prd-001`) → resolves the id via
+- **An id literal in body text** (e.g. `prd-001`) — resolves the id via
   the vault index, shows the target's title + status.
 
 ## definition / references
@@ -139,16 +141,19 @@ discovery is plugin-side, validation is template-side.
 
 ## completion
 
-Three context-sensitive completion sources:
+Four context-sensitive completion sources:
 
-1. **`@handle` completions** — typing `@` followed by partial text shows
-   matching people from `product-data/people/<handle>.md` (or whatever
-   directory your vault uses). Sorted with same-tier-folder docs first
-   for proximity.
-2. **Link-target completions** — typing `](` shows a list of vault
+1. **Link-target completions** — typing `](` shows a list of vault
    documents to link to, sorted by proximity to the current file.
-3. **Frontmatter enum completions** — typing a value for a field with a
-   `values: [...]` rule in the template shows the allowed enum members.
+   Same-tier-folder entries sort first.
+2. **Heading-anchor completions** — typing `](path#` shows heading
+   anchors from the target file.
+3. **Template-path completions** — typing a value after `template:`
+   shows `templates/*-template.md` files.
+4. **Frontmatter enum completions** — typing a value for any field
+   whose template schema declares `enum` shows the allowed values.
+   Handles both shorthand (`enum: [a, b]`) and expanded form
+   (`enum: { value: [a, b], severity: "warning" }`).
 
 ## codeAction
 
@@ -157,8 +162,8 @@ field path) and optionally the message regex.
 
 Fixers shipped:
 
-- **`code ∈ templateOnlyFields`** — diagnostic for a leaked
-  `validation_rules` / `template_id` / `template_version` key offers a
+- **`code in templateOnlyFields`** — diagnostic for a leaked
+  `template_path` / `template_id` / `template_version` key offers a
   "Delete from frontmatter" action.
 - **`code: "filename"`** — invalid filename offers a `WorkspaceEdit`
   rename to a kebab-case suggestion.
@@ -178,28 +183,25 @@ handles the click; otherwise they're a no-op.
 
 | Position | Lens title | Command |
 |---|---|---|
-| Above `template:` frontmatter line | `↗ N backlinks · ⬆ M acceptance criteria · ⏱ updated Xd ago` | `vault-keeper.openBacklinkList` |
-| Above `## Acceptance Criteria` | `▶ Run test cases for all ACs` | `vault-keeper.runTestsForDoc` |
-| Above `## Ship Timeline` | `🔒 Lock target date` / `🔓 Unlock target` (toggle) | `vault-keeper.toggleShipTimelineLock` |
-| Above `## Decision Log` | `+ Add decision entry` | `vault-keeper.addDecision` |
+| Above `template:` frontmatter line | `↗ N backlinks · ⏱ updated Xd ago` | `vault-keeper.openBacklinkList` |
 
-Counts (backlinks, ACs, days-since-update) come from the vault index +
-body parser at request time.
+Counts (backlinks, days-since-update) come from the vault index at
+request time. The days-since-update is derived from
+`frontmatter.updated_at` or `frontmatter.updated`.
 
 ## inlayHint
 
-Ghost-text rendered inline after specific positions. Useful for at-a-
-glance counts without opening the linked docs.
+Currently a **no-op skeleton** — returns an empty array for all
+requests. The inlay-hint provider registration and capability are
+preserved so the LSP handshake stays stable.
 
-| Anchor | Hint |
-|---|---|
-| `## Relationships` heading | ` (N outgoing, M incoming)` |
-| `### AC<n> — title` heading | ` (implementing: X, verified by: Y)` |
-| Relationship bullet `- [title](path.md)` | ` (status: <status>, phase: <phase>)` |
-| `status:` frontmatter line | ` (in this phase: Xd, total in this status: Yd)` |
-
-Days are derived from the body parser's `phaseHistory` /
-`statusHistory` tables.
+Prior inlay hints depended on a domain-specific body parser that
+extracted structured section data (relationship counts, AC
+implementations, status phase durations). The composable schema engine
+validates body structure generically but does not expose the parsed
+section data needed for inline decorations. Future work may reintroduce
+generic inlay hints driven by template-declared body schema and the
+`body-shapes.js` parsers.
 
 ## rename
 
@@ -218,9 +220,6 @@ Applies the canonical formatter to the entire buffer. See
 
 - Frontmatter key reordering.
 - Body section reordering per template `sections[]` list.
-- AC heading normalization (`### AC1 — Title`).
-- Relationship bullet normalization
-  (`- **predicate** [title](path) — reason`).
 - Trailing whitespace strip + blank-line collapse + final newline.
 
 The formatter is **idempotent** — running it twice produces the same
@@ -241,5 +240,3 @@ output as running it once.
 - [Vault config](vault-config.md) — what `vaultFolders` gates.
 - [CLI validator](cli-validator.md) — the same rules, full-vault.
 - [Canonical formatter](canonical-formatter.md) — formatter rules.
-- [Body parser](body-parser.md) — what the parser extracts +
-  warnings.

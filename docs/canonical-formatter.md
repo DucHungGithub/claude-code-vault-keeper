@@ -11,11 +11,9 @@ The formatter applies these transforms in order:
 
 1. [Frontmatter key reordering](#frontmatter-key-reordering)
 2. [Body section reordering](#body-section-reordering)
-3. [AC heading normalization](#ac-heading-normalization)
-4. [Relationship bullet normalization](#relationship-bullet-normalization)
-5. [Trailing whitespace strip](#trailing-whitespace-strip)
-6. [Blank-line collapse](#blank-line-collapse)
-7. [Final newline normalization](#final-newline-normalization)
+3. [Trailing whitespace strip](#trailing-whitespace-strip)
+4. [Blank-line collapse](#blank-line-collapse)
+5. [Final newline normalization](#final-newline-normalization)
 
 All transforms **skip lines inside fenced code blocks** (``` … ``` and
 ~~~ … ~~~) so embedded code samples don't get rewritten.
@@ -93,16 +91,15 @@ Date objects are serialized as ISO date strings (YAML 1.1's date type).
 
 ## 2. Body section reordering
 
-When `opts.sections` (or the template's `sections[]` validation rule) is
+When `opts.sections` (or the template's top-level `sections[]` list) is
 present, body H2 sections are reordered to match the canonical list.
 
 ```yaml
-validation_rules:
-  sections:
-    - problem
-    - goals
-    - "*"
-    - relationships
+sections:
+  - problem
+  - goals
+  - "*"
+  - relationships
 ```
 
 - Sections in the explicit list appear in that order.
@@ -122,70 +119,20 @@ Content before the first H2 (the H1 title, intro paragraphs) is
 preserved as the "preamble" and stays in front of all reordered
 sections.
 
-## 3. AC heading normalization
-
-H3+ headings that match the Acceptance Criteria shape are normalized:
-
-| Input | Output |
-|---|---|
-| `### AC1: User logs in` | `### AC1 — User logs in` |
-| `### AC 2 - Fast checkout` | `### AC2 — Fast checkout` |
-| `### AC1 — user logs in` | `### AC1 — User logs in` (title-case first char) |
-
-Regex (case-insensitive):
-
-```
-^(#{3,})\s+AC\s*(\d+)\s*[-:—]\s*(.+)$
-```
-
-The separator becomes ` — ` (em-dash with spaces), the AC number
-collapses (`AC 1` → `AC1`), the title's first character is
-upper-cased.
-
-## 4. Relationship bullet normalization
-
-Bullets in any section that match the relationship shape get rewritten
-to canonical form.
-
-| Input | Output |
-|---|---|
-| `- implements: [DIBB-001](path.md)` | `- **implements** [DIBB-001](path.md)` |
-| `- implements [DIBB-001](path.md) - bets on growth` | `- **implements** [DIBB-001](path.md) — bets on growth` |
-| `- **implements**: [DIBB-001](path.md)` | `- **implements** [DIBB-001](path.md)` |
-
-Canonical form:
-
-```
-- **<predicate>** [<title>](<path>) [— <reason>]
-```
-
-- Predicate gets wrapped in `**` (Markdown bold).
-- The colon (`:`) or extra space between predicate and link is dropped.
-- Reason fragments get a ` — ` (em-dash with spaces) prefix.
-
-Already-canonical bullets pass through unchanged.
-
-### Predicates the regex recognises
-
-Any `[a-z_]+` word followed by a markdown link counts as a "predicate"
-candidate. The formatter doesn't enforce a closed vocabulary — your
-template decides what's meaningful via body section-rules. The
-formatter only normalises **shape**.
-
-## 5. Trailing whitespace strip
+## 3. Trailing whitespace strip
 
 Every non-code-block line has trailing whitespace stripped (`/\s+$/`).
 
 Code-block lines are preserved (whitespace inside code can be
 semantically meaningful).
 
-## 6. Blank-line collapse
+## 4. Blank-line collapse
 
 Runs of 3+ consecutive blank lines collapse to 2. Inside-section runs
 stay tight (one blank line max between intra-section paragraphs is the
 expected human-written shape; the formatter tolerates 2 between H2s).
 
-## 7. Final newline normalization
+## 5. Final newline normalization
 
 The file ends with exactly one trailing newline (POSIX convention).
 
@@ -205,7 +152,7 @@ newlines from the parsed body and re-injecting exactly one — see
 
 `formatVaultDocumentAsync(text, { projectRoot })` reads the doc's
 frontmatter, extracts the `template:` field, loads that template's
-`validation_rules.sections[]`, and applies the section ordering
+top-level `sections[]` list, and applies the section ordering
 automatically. Use this from contexts that don't already have the
 sections list in hand (e.g. an editor extension).
 
@@ -218,6 +165,8 @@ The formatter only normalises shape; it does **not**:
 
 - Add missing required fields.
 - Insert missing required sections.
+- Normalize heading text or list-item text (that's the schema engine's
+  job via section-rules).
 - Reorder frontmatter keys beyond the priority list (alphabetical for
   the rest is intentional).
 - Touch list-item ordering inside a section.
@@ -233,5 +182,3 @@ separate responsibilities.
   `documentFormattingProvider` exposes this.
 - [Body rules](templates/body-rules.md) — `sections[]` declaration in
   templates.
-- [Body parser](body-parser.md) — what the parser expects vs what the
-  formatter normalises.

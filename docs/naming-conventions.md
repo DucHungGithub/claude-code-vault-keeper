@@ -6,10 +6,10 @@ Two independent surfaces enforce filename rules:
    must be lowercase-kebab-case. Enforced uniformly across `.md` and
    asset files. Hardcoded in plugin code (it's pure infrastructure
    that can't be expressed as a template rule).
-2. **Template `path_regex`** — each template declares the regex that
-   its instance paths must match. Lives inside the template's
-   `validation_rules` block; see
-   [templates/folder-and-naming](templates/folder-and-naming.md#path_regex).
+2. **Template `$path` synthetic field** — each template declares the
+   regex that its instance paths must match via the `$path` field inside
+   the template's `fields:` block; see
+   [templates/folder-and-naming](templates/folder-and-naming.md#path-synthetic-field).
 
 ## The slug rule
 
@@ -159,8 +159,8 @@ docs/
 │   ├── note-002-second.md           ✅
 │   └── Random Thoughts.md           ❌ slug rule fails
 ├── decisions/
-│   ├── 2026-05-12-adr-007-foo.md    ✅ (matches the adr template path_regex)
-│   └── random.md                    ❌ template's path_regex fails (no date prefix)
+│   ├── 2026-05-12-adr-007-foo.md    ✅ (matches the adr template $path pattern)
+│   └── random.md                    ❌ template's $path pattern fails (no date prefix)
 ├── images/
 │   ├── login-screen.png             ✅
 │   └── LoginScreen.png              ❌ slug rule fails (asset slug pass)
@@ -168,7 +168,7 @@ docs/
 ```
 
 The slug rule fires on `Random Thoughts.md` and `LoginScreen.png`
-unconditionally. The template-declared `path_regex` for the ADR
+unconditionally. The template-declared `$path` pattern for the ADR
 template fires on `decisions/random.md`.
 
 ## See also
@@ -176,5 +176,5 @@ template fires on `decisions/random.md`.
 - [Vault config](vault-config.md) — config atoms (`vaultRoot`,
   `vaultFolders`, `excludePatterns`).
 - [Templates / Folder & filename rules](templates/folder-and-naming.md)
-  — template-declared `path_regex`.
+  — template-declared `$path` synthetic field.
 - [CLI validator](cli-validator.md) — how the asset slug pass runs.
