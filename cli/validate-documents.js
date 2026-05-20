@@ -118,28 +118,34 @@ async function validateDocument(filepath, options = {}) {
     // Surface template meta-validation issues (malformed field specs, etc.)
     if (rules.templateErrors?.length) {
       allIssues.push(...rules.templateErrors);
-    }
+      // Template schema is broken — skip field/body validation to avoid
+      // crashes from malformed primitives (uncompilable regex, non-array
+      // enum, etc.). The template errors above give the author actionable
+      // diagnostics; running applyFieldSchema/applyBodySchema against a
+      // known-broken schema would only produce confusing secondary errors
+      // or throw.
+    } else {
+      // Construct docMeta for the schema engine. repoRelativePath is
+      // POSIX-normalized so regexes authored on macOS/Linux match on Windows.
+      const projectRoot = options.projectRoot || process.cwd();
+      const docMeta = {
+        repoRelativePath: relative(projectRoot, filepath).split(/[\\/]/).join('/'),
+        fileExists: (relPath) => existsSync(join(projectRoot, relPath)),
+      };
 
-    // Construct docMeta for the schema engine. repoRelativePath is
-    // POSIX-normalized so regexes authored on macOS/Linux match on Windows.
-    const projectRoot = options.projectRoot || process.cwd();
-    const docMeta = {
-      repoRelativePath: relative(projectRoot, filepath).split(/[\\/]/).join('/'),
-      fileExists: (relPath) => existsSync(join(projectRoot, relPath)),
-    };
+      // Frontmatter field validation (includes synthetic $path via the engine).
+      if (rules.fields) {
+        allIssues.push(...applyFieldSchema(
+          { fields: rules.fields, strict: rules.strict },
+          fm,
+          docMeta,
+        ));
+      }
 
-    // Frontmatter field validation (includes synthetic $path via the engine).
-    if (rules.fields) {
-      allIssues.push(...applyFieldSchema(
-        { fields: rules.fields, strict: rules.strict },
-        fm,
-        docMeta,
-      ));
-    }
-
-    // Body section-rules validation.
-    if (rules.bodySchema?.length) {
-      allIssues.push(...applyBodySchema(rules.bodySchema, doc.body, docMeta, fm));
+      // Body section-rules validation.
+      if (rules.bodySchema?.length) {
+        allIssues.push(...applyBodySchema(rules.bodySchema, doc.body, docMeta, fm));
+      }
     }
   }
 

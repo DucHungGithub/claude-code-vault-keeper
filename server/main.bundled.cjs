@@ -32369,6 +32369,7 @@ var PRIMITIVES = {
   enum(value, param, ctx) {
     const level = ctx.severity || "error";
     const field = ctx.field;
+    if (!Array.isArray(param)) return [];
     if (!param.includes(value)) {
       return [issue(level, field, ctx.message || `Value '${value}' is not in allowed values: [${param.join(", ")}]`, "enum-violation", `Use one of: ${param.join(", ")}`)];
     }
@@ -32378,7 +32379,12 @@ var PRIMITIVES = {
     const level = ctx.severity || "error";
     const field = ctx.field;
     const str3 = value instanceof Date && !Number.isNaN(value.getTime()) ? value.toISOString().slice(0, 10) : String(value);
-    const re = new RegExp(param);
+    let re;
+    try {
+      re = new RegExp(param);
+    } catch {
+      return [];
+    }
     if (!re.test(str3)) {
       return [issue(level, field, ctx.message || `Value '${str3}' does not match pattern '${param}'`, "pattern-mismatch", `Must match: ${param}`)];
     }
@@ -32441,7 +32447,12 @@ var PRIMITIVES = {
     const field = ctx.field;
     const text5 = String(_value);
     if (param.pattern) {
-      const re = new RegExp(param.pattern);
+      let re;
+      try {
+        re = new RegExp(param.pattern);
+      } catch {
+        return [];
+      }
       if (!re.test(text5)) {
         return [issue(level, field, ctx.message || `Heading '${text5}' does not match pattern '${param.pattern}'`, "heading-mismatch")];
       }
@@ -32480,7 +32491,12 @@ var PRIMITIVES = {
     }
     const issues = [];
     if (param.item && param.item.pattern) {
-      const re = new RegExp(param.item.pattern);
+      let re;
+      try {
+        re = new RegExp(param.item.pattern);
+      } catch {
+        return [];
+      }
       for (const item of _value.items) {
         if (!re.test(item.text)) {
           issues.push(issue(level, field, ctx.message || `List item '${item.text}' does not match pattern '${param.item.pattern}'`, "list-item"));
@@ -33625,18 +33641,20 @@ async function validateBuffer({ text: text5, filepath, projectRoot: projectRoot2
     for (const te of rules.templateErrors || []) {
       issues.push(te);
     }
-    if (rules.fields) {
-      const docMeta = { repoRelativePath: filepath };
-      issues.push(...applyFieldSchema({ fields: rules.fields, strict: rules.strict }, fm, docMeta));
-    }
-    if (Array.isArray(rules.bodySchema) && rules.bodySchema.length > 0) {
-      const docMeta2 = { repoRelativePath: filepath };
-      const bodyIssues = applyBodySchema(rules.bodySchema, body, docMeta2, fm);
-      for (const bi of bodyIssues) {
-        issues.push({
-          ...bi,
-          line: bodyLineToDocLine(text5, bi.bodyLine)
-        });
+    if (!rules.templateErrors?.length) {
+      if (rules.fields) {
+        const docMeta = { repoRelativePath: filepath };
+        issues.push(...applyFieldSchema({ fields: rules.fields, strict: rules.strict }, fm, docMeta));
+      }
+      if (Array.isArray(rules.bodySchema) && rules.bodySchema.length > 0) {
+        const docMeta2 = { repoRelativePath: filepath };
+        const bodyIssues = applyBodySchema(rules.bodySchema, body, docMeta2, fm);
+        for (const bi of bodyIssues) {
+          issues.push({
+            ...bi,
+            line: bodyLineToDocLine(text5, bi.bodyLine)
+          });
+        }
       }
     }
   }

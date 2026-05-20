@@ -119,23 +119,31 @@ export async function validateBuffer({ text, filepath, projectRoot }) {
       issues.push(te);
     }
 
-    // Frontmatter field schema validation.
-    if (rules.fields) {
-      const docMeta = { repoRelativePath: filepath };
-      issues.push(...applyFieldSchema({ fields: rules.fields, strict: rules.strict }, fm, docMeta));
-    }
+    // Template schema is broken — skip field/body validation to avoid
+    // crashes from malformed primitives (uncompilable regex, non-array
+    // enum, etc.). The template errors above give the author actionable
+    // diagnostics; running applyFieldSchema/applyBodySchema against a
+    // known-broken schema would only produce confusing secondary errors
+    // or throw.
+    if (!(rules.templateErrors?.length)) {
+      // Frontmatter field schema validation.
+      if (rules.fields) {
+        const docMeta = { repoRelativePath: filepath };
+        issues.push(...applyFieldSchema({ fields: rules.fields, strict: rules.strict }, fm, docMeta));
+      }
 
-    // Body schema validation.
-    if (Array.isArray(rules.bodySchema) && rules.bodySchema.length > 0) {
-      const docMeta2 = { repoRelativePath: filepath };
-      const bodyIssues = applyBodySchema(rules.bodySchema, body, docMeta2, fm);
-      // Body issues carry 1-indexed body-relative `bodyLine` — translate
-      // each to a document-absolute 0-indexed `line`.
-      for (const bi of bodyIssues) {
-        issues.push({
-          ...bi,
-          line: bodyLineToDocLine(text, bi.bodyLine),
-        });
+      // Body schema validation.
+      if (Array.isArray(rules.bodySchema) && rules.bodySchema.length > 0) {
+        const docMeta2 = { repoRelativePath: filepath };
+        const bodyIssues = applyBodySchema(rules.bodySchema, body, docMeta2, fm);
+        // Body issues carry 1-indexed body-relative `bodyLine` — translate
+        // each to a document-absolute 0-indexed `line`.
+        for (const bi of bodyIssues) {
+          issues.push({
+            ...bi,
+            line: bodyLineToDocLine(text, bi.bodyLine),
+          });
+        }
       }
     }
   }
