@@ -1,9 +1,10 @@
 /**
- * Tests for the template-rules loader.
+ * Tests for the template-rules loader — Phase 3a (LOADER layer).
  *
- * `loadTemplateRules` reads a markdown template, parses its YAML frontmatter,
- * and returns the normalized validation_rules block (or null on any failure).
- * `normalizeRules` is pure and runs on inline objects.
+ * `loadTemplateRules` reads a markdown template, parses its frontmatter
+ * (`fields:`, `strict`, `sections:`, `tier:`), parses the body into a
+ * BodySchemaNode tree, runs meta-validation, and returns the full schema
+ * object (or null on failure).
  *
  * Each test uses an isolated temp dir; no real templates are read.
  */
@@ -12,10 +13,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import {
-  loadTemplateRules,
-  normalizeRules,
-} from "../lib/template-rules.js";
+import { loadTemplateRules } from "../lib/template-rules.js";
 
 let SANDBOX;
 
@@ -51,225 +49,403 @@ describe("loadTemplateRules — null cases", () => {
     expect(await loadTemplateRules("templates/nope.md", SANDBOX)).toBeNull();
   });
 
-  test("file exists but no frontmatter → null", async () => {
-    writeFile("templates/foo.md", "# heading only\n\nbody\n");
-    expect(await loadTemplateRules("templates/foo.md", SANDBOX)).toBeNull();
-  });
-
-  test("frontmatter exists but no validation_rules block → null", async () => {
-    writeFile(
-      "templates/foo.md",
-      "---\ntemplate_id: foo\nstatus: x\n---\nbody\n",
-    );
-    expect(await loadTemplateRules("templates/foo.md", SANDBOX)).toBeNull();
-  });
-
   test("malformed YAML in frontmatter → null (not throw)", async () => {
     writeFile("templates/bad.md", "---\nbroken: [unclosed\n---\nbody\n");
     expect(await loadTemplateRules("templates/bad.md", SANDBOX)).toBeNull();
   });
+
+  test("empty file → object (gray-matter parses empty as {})", async () => {
+    writeFile("templates/empty.md", "");
+    const result = await loadTemplateRules("templates/empty.md", SANDBOX);
+    // gray-matter parses an empty string as { data: {}, content: '' }.
+    // {} is a valid object, so we get a result, not null.
+    expect(result).not.toBeNull();
+    expect(result.fields).toBeUndefined();
+    expect(result.bodySchema).toEqual([]);
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
-// loadTemplateRules — happy paths
+// loadTemplateRules — return shape
 // ────────────────────────────────────────────────────────────────────────────
 
-describe("loadTemplateRules — happy paths", () => {
-  test("required_fields list is loaded verbatim", async () => {
+describe("loadTemplateRules — return shape", () => {
+  test("template with frontmatter but no fields: → fields is undefined", async () => {
     writeFile(
-      "templates/r.md",
-      `---
-validation_rules:
-  required_fields: [template, status, owner]
----
-body
-`,
+      "templates/minimal.md",
+      "---\ntier: basic\n---\nbody\n",
     );
-    const rules = await loadTemplateRules("templates/r.md", SANDBOX);
-    expect(rules.required_fields).toEqual(["template", "status", "owner"]);
+    const result = await loadTemplateRules("templates/minimal.md", SANDBOX);
+    expect(result).not.toBeNull();
+    expect(result.fields).toBeUndefined();
+    expect(result.tier).toBe("basic");
+    expect(result.strict).toBe(false);
+    expect(result.sections).toEqual([]);
+    expect(result.bodySchema).toEqual([]);
+    expect(result.templateErrors).toEqual([]);
   });
 
-  test("field_rules with all variants (regex / values / type+min)", async () => {
-    writeFile(
-      "templates/f.md",
-      `---
-validation_rules:
-  field_rules:
-    - field: status
-      values: [draft, review]
-    - field: created
-      regex: "^\\\\d{4}-\\\\d{2}-\\\\d{2}$"
-    - field: count
-      type: integer
-      min: 0
----
-`,
-    );
-    const rules = await loadTemplateRules("templates/f.md", SANDBOX);
-    expect(rules.field_rules).toHaveLength(3);
-    expect(rules.field_rules[0]).toMatchObject({
-      field: "status",
-      values: ["draft", "review"],
-    });
-    expect(rules.field_rules[1].field).toBe("created");
-    expect(rules.field_rules[1].regex).toMatch(/\\d\{4\}/);
-    expect(rules.field_rules[2]).toMatchObject({
-      field: "count",
-      type: "integer",
-      min: 0,
-    });
+  test("file with no frontmatter → object with fields undefined", async () => {
+    writeFile("templates/nofront.md", "# Just a heading\n\nbody\n");
+    // gray-matter returns data as {} for no-frontmatter files — a valid
+    // object, so loadTemplateRules returns a result (not null).
+    const result = await loadTemplateRules("templates/nofront.md", SANDBOX);
+    expect(result).not.toBeNull();
+    expect(result.fields).toBeUndefined();
+    expect(result.strict).toBe(false);
+    expect(result.sections).toEqual([]);
+    expect(result.tier).toBeNull();
   });
 
-  test("conditional_required_fields preserves shape", async () => {
+  test("returns all six keys in result object", async () => {
     writeFile(
-      "templates/c.md",
-      `---
-validation_rules:
-  conditional_required_fields:
-    - condition: "type in ['x']"
-      field: foo
-      required: true
-    - condition: "type in ['y']"
-      field: bar
-      min_count: 2
----
-`,
+      "templates/full.md",
+      [
+        "---",
+        "fields:",
+        "  status:",
+        "    type: string",
+        "    required: true",
+        "    enum: [draft, review]",
+        "strict: true",
+        "sections: [overview, details]",
+        "tier: premium",
+        "---",
+        "",
+        "## Overview",
+        "",
+        "```yaml section-rules",
+        "required: true",
+        "```",
+      ].join("\n"),
     );
-    const rules = await loadTemplateRules("templates/c.md", SANDBOX);
-    expect(rules.conditional_required_fields).toHaveLength(2);
-    expect(rules.conditional_required_fields[0]).toMatchObject({
-      condition: "type in ['x']",
-      field: "foo",
+    const result = await loadTemplateRules("templates/full.md", SANDBOX);
+    expect(result).not.toBeNull();
+
+    // fields
+    expect(result.fields).toBeDefined();
+    expect(result.fields.status).toEqual({
+      type: "string",
       required: true,
+      enum: ["draft", "review"],
     });
-    expect(rules.conditional_required_fields[1]).toMatchObject({
-      condition: "type in ['y']",
-      field: "bar",
-      min_count: 2,
-    });
-  });
 
-  test("state_machine map is loaded as transition graph", async () => {
-    writeFile(
-      "templates/s.md",
-      `---
-validation_rules:
-  state_machine:
-    draft: [review, cancelled]
-    review: [approved]
-    approved: []
----
-`,
-    );
-    const rules = await loadTemplateRules("templates/s.md", SANDBOX);
-    expect(rules.state_machine).toEqual({
-      draft: ["review", "cancelled"],
-      review: ["approved"],
-      approved: [],
-    });
-  });
+    // strict
+    expect(result.strict).toBe(true);
 
-  test("optional_fields list", async () => {
-    writeFile(
-      "templates/o.md",
-      `---
-validation_rules:
-  optional_fields: [tags, references]
----
-`,
-    );
-    const rules = await loadTemplateRules("templates/o.md", SANDBOX);
-    expect(rules.optional_fields).toEqual(["tags", "references"]);
-  });
+    // sections
+    expect(result.sections).toEqual(["overview", "details"]);
 
-  test("__source records the template path it was loaded from", async () => {
-    writeFile(
-      "templates/x.md",
-      `---
-validation_rules:
-  required_fields: [a]
----
-`,
-    );
-    const rules = await loadTemplateRules("templates/x.md", SANDBOX);
-    expect(rules.__source).toBe("templates/x.md");
+    // tier
+    expect(result.tier).toBe("premium");
+
+    // bodySchema
+    expect(result.bodySchema).toHaveLength(1);
+    expect(result.bodySchema[0].text).toBe("Overview");
+    expect(result.bodySchema[0].sectionRules).toEqual({ required: true });
+
+    // templateErrors
+    expect(Array.isArray(result.templateErrors)).toBe(true);
+    expect(result.templateErrors).toEqual([]); // valid template → no errors
   });
 
   test("absolute path is honoured (no projectRoot join)", async () => {
     const abs = writeFile(
       "templates/abs.md",
-      `---
-validation_rules:
-  required_fields: [a]
----
-`,
+      "---\ntier: alpha\n---\nbody\n",
     );
-    const rules = await loadTemplateRules(abs);
-    expect(rules.required_fields).toEqual(["a"]);
+    const result = await loadTemplateRules(abs);
+    expect(result).not.toBeNull();
+    expect(result.tier).toBe("alpha");
   });
+});
 
-  test("missing arrays normalize to empty arrays (not undefined)", async () => {
+// ────────────────────────────────────────────────────────────────────────────
+// loadTemplateRules — fields: extraction
+// ────────────────────────────────────────────────────────────────────────────
+
+describe("loadTemplateRules — fields extraction", () => {
+  test("fields: with multiple field schemas", async () => {
     writeFile(
-      "templates/empty.md",
-      `---
-validation_rules: {}
----
-`,
+      "templates/fields.md",
+      [
+        "---",
+        "fields:",
+        "  title:",
+        "    type: string",
+        "    required: true",
+        "  count:",
+        "    type: integer",
+        "    min: 0",
+        "    max: 100",
+        "  tags:",
+        "    type: array",
+        "    uniqueItems: true",
+        "---",
+        "body",
+      ].join("\n"),
     );
-    const rules = await loadTemplateRules("templates/empty.md", SANDBOX);
-    expect(rules.required_fields).toEqual([]);
-    expect(rules.conditional_required_fields).toEqual([]);
-    expect(rules.field_rules).toEqual([]);
-    expect(rules.optional_fields).toEqual([]);
-    expect(rules.state_machine).toBeNull();
+    const result = await loadTemplateRules("templates/fields.md", SANDBOX);
+    expect(result.fields.title).toEqual({ type: "string", required: true });
+    expect(result.fields.count).toEqual({ type: "integer", min: 0, max: 100 });
+    expect(result.fields.tags).toEqual({ type: "array", uniqueItems: true });
+  });
+
+  test("synthetic $path field", async () => {
+    writeFile(
+      "templates/synth.md",
+      [
+        "---",
+        "fields:",
+        '  $path:',
+        '    pattern: "^docs/.*\\\\.md$"',
+        "---",
+        "body",
+      ].join("\n"),
+    );
+    const result = await loadTemplateRules("templates/synth.md", SANDBOX);
+    expect(result.fields.$path).toEqual({ pattern: "^docs/.*\\.md$" });
+  });
+
+  test("fields: null in frontmatter → fields is undefined", async () => {
+    writeFile(
+      "templates/nullfields.md",
+      "---\nfields: null\ntier: x\n---\nbody\n",
+    );
+    const result = await loadTemplateRules("templates/nullfields.md", SANDBOX);
+    expect(result.fields).toBeUndefined();
+  });
+
+  test("fields: as a string (invalid) → fields is undefined", async () => {
+    writeFile(
+      "templates/strfields.md",
+      "---\nfields: not-an-object\n---\nbody\n",
+    );
+    const result = await loadTemplateRules("templates/strfields.md", SANDBOX);
+    expect(result.fields).toBeUndefined();
   });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
-// normalizeRules — pure transformation contract
+// loadTemplateRules — strict / sections / tier defaults
 // ────────────────────────────────────────────────────────────────────────────
 
-describe("normalizeRules", () => {
-  test("array fields are defensively copied", () => {
-    const input = ["a", "b"];
-    const r = normalizeRules({ required_fields: input });
-    r.required_fields.push("c");
-    expect(input).toEqual(["a", "b"]); // input untouched
+describe("loadTemplateRules — top-level keys", () => {
+  test("strict defaults to false", async () => {
+    writeFile("templates/nostrict.md", "---\ntier: x\n---\nbody\n");
+    const result = await loadTemplateRules("templates/nostrict.md", SANDBOX);
+    expect(result.strict).toBe(false);
   });
 
-  test("non-array required_fields → empty array (graceful coerce)", () => {
-    expect(normalizeRules({ required_fields: "not array" }).required_fields).toEqual([]);
-    expect(normalizeRules({ required_fields: null }).required_fields).toEqual([]);
-    expect(normalizeRules({}).required_fields).toEqual([]);
+  test("strict: true is honoured", async () => {
+    writeFile("templates/strict.md", "---\nstrict: true\n---\nbody\n");
+    const result = await loadTemplateRules("templates/strict.md", SANDBOX);
+    expect(result.strict).toBe(true);
   });
 
-  test("__source defaults to 'inline' when not provided", () => {
-    expect(normalizeRules({}).__source).toBe("inline");
+  test("strict: 'yes' (string, not boolean) → false", async () => {
+    writeFile("templates/strictstr.md", "---\nstrict: yes\n---\nbody\n");
+    const result = await loadTemplateRules("templates/strictstr.md", SANDBOX);
+    // gray-matter parses 'yes' as the string "yes", not boolean true.
+    // Only boolean true activates strict mode.
+    expect(result.strict).toBe(false);
   });
 
-  test("__source override is preserved", () => {
-    expect(normalizeRules({}, "templates/foo.md").__source).toBe("templates/foo.md");
+  test("sections is defensively copied", async () => {
+    writeFile(
+      "templates/sec.md",
+      "---\nsections: [a, b, c]\n---\nbody\n",
+    );
+    const result = await loadTemplateRules("templates/sec.md", SANDBOX);
+    expect(result.sections).toEqual(["a", "b", "c"]);
+    // Mutating returned array should not affect internal state.
+    result.sections.push("d");
+    const result2 = await loadTemplateRules("templates/sec.md", SANDBOX);
+    expect(result2.sections).toEqual(["a", "b", "c"]);
   });
 
-  test("state_machine values defensively copied", () => {
-    const sm = { draft: ["review"] };
-    const r = normalizeRules({ state_machine: sm });
-    r.state_machine.draft.push("cancelled");
-    expect(sm.draft).toEqual(["review"]);
+  test("sections missing → empty array", async () => {
+    writeFile("templates/nosec.md", "---\ntier: x\n---\nbody\n");
+    const result = await loadTemplateRules("templates/nosec.md", SANDBOX);
+    expect(result.sections).toEqual([]);
   });
 
-  test("conditional entries are shallow-copied (mutation-safe at one level)", () => {
-    const entries = [{ condition: "x in ['y']", field: "z", required: true }];
-    const r = normalizeRules({ conditional_required_fields: entries });
-    r.conditional_required_fields[0].field = "MUTATED";
-    expect(entries[0].field).toBe("z");
+  test("tier missing → null", async () => {
+    writeFile("templates/notier.md", "---\nstrict: true\n---\nbody\n");
+    const result = await loadTemplateRules("templates/notier.md", SANDBOX);
+    expect(result.tier).toBeNull();
   });
 
-  test("null/undefined input returns an empty rule object (not throw)", () => {
-    const r = normalizeRules(null);
-    expect(r.required_fields).toEqual([]);
-    expect(r.field_rules).toEqual([]);
-    expect(r.state_machine).toBeNull();
+  test("tier as non-string → null", async () => {
+    writeFile("templates/badtier.md", "---\ntier: 42\n---\nbody\n");
+    const result = await loadTemplateRules("templates/badtier.md", SANDBOX);
+    expect(result.tier).toBeNull();
   });
 });
 
+// ────────────────────────────────────────────────────────────────────────────
+// loadTemplateRules — bodySchema extraction
+// ────────────────────────────────────────────────────────────────────────────
+
+describe("loadTemplateRules — bodySchema", () => {
+  test("template body with section-rules → bodySchema tree", async () => {
+    writeFile(
+      "templates/body.md",
+      [
+        "---",
+        "tier: full",
+        "---",
+        "",
+        "## Section A",
+        "",
+        "```yaml section-rules",
+        "required: true",
+        "```",
+        "",
+        "### Sub A1",
+        "",
+        "```yaml section-rules",
+        "repeatable: true",
+        "```",
+        "",
+        "## Section B",
+        "",
+        "Content only.",
+      ].join("\n"),
+    );
+    const result = await loadTemplateRules("templates/body.md", SANDBOX);
+    expect(result.bodySchema).toHaveLength(2);
+    expect(result.bodySchema[0].text).toBe("Section A");
+    expect(result.bodySchema[0].sectionRules).toEqual({ required: true });
+    expect(result.bodySchema[0].children).toHaveLength(1);
+    expect(result.bodySchema[0].children[0].text).toBe("Sub A1");
+    expect(result.bodySchema[0].children[0].sectionRules).toEqual({ repeatable: true });
+    expect(result.bodySchema[1].text).toBe("Section B");
+    expect(result.bodySchema[1].sectionRules).toBeNull();
+  });
+
+  test("template with no body → bodySchema is empty array", async () => {
+    writeFile("templates/nobody.md", "---\ntier: x\n---\n");
+    const result = await loadTemplateRules("templates/nobody.md", SANDBOX);
+    expect(result.bodySchema).toEqual([]);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// loadTemplateRules — templateErrors (meta-validation)
+// ────────────────────────────────────────────────────────────────────────────
+
+describe("loadTemplateRules — templateErrors", () => {
+  test("valid template → empty templateErrors", async () => {
+    writeFile(
+      "templates/valid.md",
+      [
+        "---",
+        "fields:",
+        "  name:",
+        "    type: string",
+        "    required: true",
+        "---",
+        "",
+        "## Section",
+        "",
+        "```yaml section-rules",
+        "required: true",
+        "```",
+      ].join("\n"),
+    );
+    const result = await loadTemplateRules("templates/valid.md", SANDBOX);
+    expect(result.templateErrors).toEqual([]);
+  });
+
+  test("unknown primitive in fields → templateErrors populated", async () => {
+    writeFile(
+      "templates/badfield.md",
+      [
+        "---",
+        "fields:",
+        "  name:",
+        "    type: string",
+        "    frobnicate: true",
+        "---",
+        "body",
+      ].join("\n"),
+    );
+    const result = await loadTemplateRules("templates/badfield.md", SANDBOX);
+    expect(result.templateErrors.length).toBeGreaterThan(0);
+    expect(result.templateErrors[0].error_type).toBe("template-schema-invalid");
+  });
+
+  test("unknown key in section-rules → templateErrors populated", async () => {
+    writeFile(
+      "templates/badbody.md",
+      [
+        "---",
+        "tier: x",
+        "---",
+        "",
+        "## Section",
+        "",
+        "```yaml section-rules",
+        "required: true",
+        "alien_key: oops",
+        "```",
+      ].join("\n"),
+    );
+    const result = await loadTemplateRules("templates/badbody.md", SANDBOX);
+    expect(result.templateErrors.length).toBeGreaterThan(0);
+    const bodyError = result.templateErrors.find((e) =>
+      e.message.includes("alien_key"),
+    );
+    expect(bodyError).toBeDefined();
+    expect(bodyError.error_type).toBe("template-schema-invalid");
+  });
+
+  test("both field and body errors are concatenated", async () => {
+    writeFile(
+      "templates/botherrors.md",
+      [
+        "---",
+        "fields:",
+        "  x:",
+        "    badprim: yes",
+        "---",
+        "",
+        "## S",
+        "",
+        "```yaml section-rules",
+        "unknown_rule: 1",
+        "```",
+      ].join("\n"),
+    );
+    const result = await loadTemplateRules("templates/botherrors.md", SANDBOX);
+    expect(result.templateErrors.length).toBeGreaterThanOrEqual(2);
+    const fieldErr = result.templateErrors.find((e) =>
+      e.message.includes("badprim"),
+    );
+    const bodyErr = result.templateErrors.find((e) =>
+      e.message.includes("unknown_rule"),
+    );
+    expect(fieldErr).toBeDefined();
+    expect(bodyErr).toBeDefined();
+  });
+
+  test("no fields: → only body meta-validation runs", async () => {
+    writeFile(
+      "templates/nofieldsbody.md",
+      [
+        "---",
+        "tier: x",
+        "---",
+        "",
+        "## Good",
+        "",
+        "```yaml section-rules",
+        "required: true",
+        "```",
+      ].join("\n"),
+    );
+    const result = await loadTemplateRules("templates/nofieldsbody.md", SANDBOX);
+    expect(result.templateErrors).toEqual([]);
+  });
+});
