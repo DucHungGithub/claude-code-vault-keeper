@@ -249,10 +249,16 @@ async function validateDocument(filepath, options = {}) {
  * Generic / template-driven — no hardcoded vault paths.
  */
 const _bundleMismatchMap = new Map(); // normalizedFilepath -> string[] candidate templates
-let _bundleTemplatePatternsCache = null;
+
+// Keyed by projectRoot so that different vaults get independent caches.
+// Bug A2: previously a module-level `null` caused vault A's patterns to leak
+// into vault B when both were validated in the same process.
+const _bundleTemplatePatternsCache = new Map();
 
 async function loadContentTemplateBundlePatterns(projectRoot = process.cwd()) {
-  if (_bundleTemplatePatternsCache) return _bundleTemplatePatternsCache;
+  if (_bundleTemplatePatternsCache.has(projectRoot)) {
+    return _bundleTemplatePatternsCache.get(projectRoot);
+  }
   const patterns = [];
   const tmplFiles = glob.sync('templates/*-template.md', { cwd: projectRoot });
   for (const tf of tmplFiles) {
@@ -273,8 +279,21 @@ async function loadContentTemplateBundlePatterns(projectRoot = process.cwd()) {
       // Invalid regex — validatePathRegex surfaces this elsewhere.
     }
   }
-  _bundleTemplatePatternsCache = patterns;
+  _bundleTemplatePatternsCache.set(projectRoot, patterns);
   return patterns;
+}
+
+/**
+ * Clear the per-root bundle patterns cache.
+ * @param {string} [root] - If provided, only clears the entry for that root.
+ *                          If omitted, clears all entries (useful in tests).
+ */
+function clearBundleStateCaches(root) {
+  if (root !== undefined) {
+    _bundleTemplatePatternsCache.delete(root);
+  } else {
+    _bundleTemplatePatternsCache.clear();
+  }
 }
 
 /**
@@ -714,4 +733,7 @@ export {
   stripCodeRegions,
   // Config (read-only — exposed for tests asserting against canonical rules)
   CONFIG,
+  // A2: per-root cache for bundle template patterns (exported for testing)
+  loadContentTemplateBundlePatterns,
+  clearBundleStateCaches,
 };
