@@ -165,3 +165,91 @@ describe("public API — orchestrator side-effect safety", () => {
     expect(process.env.CLAUDE_PROJECT_DIR).toBe(envBefore);
   });
 });
+
+// API2: section-rules functional smoke tests
+describe("public API — section-rules (API2)", () => {
+  test("parseBodySchema returns BodySchemaNode[] for template with fences", async () => {
+    const { parseBodySchema } = await import("../lib/template-section-rules.js");
+    const body = `
+## Overview
+\`\`\`yaml section-rules
+required: true
+\`\`\`
+
+Overview content here.
+
+## Details
+
+Optional details.
+`;
+    const nodes = parseBodySchema(body);
+    expect(Array.isArray(nodes)).toBe(true);
+    expect(nodes.length).toBeGreaterThanOrEqual(1);
+    const overview = nodes.find((n) => n.text === "Overview");
+    expect(overview).toBeDefined();
+    expect(overview.sectionRules?.required).toBe(true);
+    const details = nodes.find((n) => n.text === "Details");
+    expect(details).toBeDefined();
+    expect(details.sectionRules).toBeNull();
+  });
+
+  test("parseBodySchema returns [] for empty body", async () => {
+    const { parseBodySchema } = await import("../lib/template-section-rules.js");
+    expect(parseBodySchema("")).toEqual([]);
+    expect(parseBodySchema(null)).toEqual([]);
+  });
+
+  test("findSectionRuleBlocks detects leaked section-rules fences", async () => {
+    const { findSectionRuleBlocks } = await import("../lib/template-section-rules.js");
+    const docBody = `# My Document
+
+## Overview
+
+\`\`\`yaml section-rules
+required: true
+\`\`\`
+
+This is content.
+`;
+    const blocks = findSectionRuleBlocks(docBody);
+    expect(Array.isArray(blocks)).toBe(true);
+    expect(blocks.length).toBe(1);
+    expect(typeof blocks[0].line).toBe("number");
+  });
+
+  test("findSectionRuleBlocks returns [] when no fences present", async () => {
+    const { findSectionRuleBlocks } = await import("../lib/template-section-rules.js");
+    const cleanBody = "# Clean doc\n\nNo fences here.\n";
+    expect(findSectionRuleBlocks(cleanBody)).toHaveLength(0);
+  });
+
+  test("parseBodySchema + applyBodySchema integration", async () => {
+    const { parseBodySchema } = await import("../lib/template-section-rules.js");
+    const { applyBodySchema } = await import("../lib/schema-engine.js");
+
+    const templateBody = `
+## Summary
+\`\`\`yaml section-rules
+required: true
+\`\`\`
+
+## References
+
+Optional section.
+`;
+    const bodySchema = parseBodySchema(templateBody);
+    const docMeta = { repoRelativePath: "notes/test.md", fileExists: () => true };
+
+    // Doc body WITHOUT required Summary section → error
+    const docBodyMissing = "# No sections\n\nJust prose.\n";
+    const issues = applyBodySchema(bodySchema, docBodyMissing, docMeta, {});
+    const missingIssues = issues.filter((i) => i.error_type === "required-missing");
+    expect(missingIssues.length).toBeGreaterThan(0);
+
+    // Doc body WITH Summary → no required-missing error
+    const docBodyOk = "\n## Summary\n\nContent.\n";
+    const issuesOk = applyBodySchema(bodySchema, docBodyOk, docMeta, {});
+    const missingOk = issuesOk.filter((i) => i.error_type === "required-missing");
+    expect(missingOk).toHaveLength(0);
+  });
+});

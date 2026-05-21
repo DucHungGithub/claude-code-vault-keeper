@@ -347,6 +347,117 @@ Stable `error_type` tags (16 types):
 | `cardinality` | Repeatable heading count outside `min`/`max` bounds |
 | `template-schema-invalid` | The template itself has schema errors |
 
+## Body section-rules API
+
+Templates declare per-section body constraints via `` ```yaml section-rules `` fences.
+Two functions expose this for custom tooling: `parseBodySchema` parses a template body
+into a structured node tree, and `findSectionRuleBlocks` detects section-rules fences
+leaking into authored documents.
+
+### `parseBodySchema(templateBodyMarkdown)`
+
+Parse a template's markdown body (frontmatter already stripped) into a `BodySchemaNode[]`
+tree. Each node corresponds to a heading and carries its `sectionRules` object and any
+nested children.
+
+```js
+import { parseBodySchema } from 'claude-code-vault-keeper';
+import { loadTemplateRules } from 'claude-code-vault-keeper';
+
+// Via loadTemplateRules — body schema is already parsed and attached:
+const schema = await loadTemplateRules('templates/prd-template.md', projectRoot);
+const bodySchema = schema.bodySchema; // BodySchemaNode[]
+
+// Or parse a raw template body directly:
+const rawBody = `
+## Overview
+\`\`\`yaml section-rules
+required: true
+\`\`\`
+
+The product overview goes here.
+
+## Details
+
+Optional extended details.
+`;
+
+const nodes = parseBodySchema(rawBody);
+// nodes[0] = { depth: 2, text: 'Overview', sectionRules: { required: true }, children: [] }
+// nodes[1] = { depth: 2, text: 'Details', sectionRules: null, children: [] }
+
+// Find required sections:
+const required = nodes.filter((n) => n.sectionRules?.required).map((n) => n.text);
+// → ['Overview']
+```
+
+`BodySchemaNode` shape:
+
+```ts
+interface BodySchemaNode {
+  depth: number;           // heading depth (2 = ##, 3 = ###, …)
+  text: string;            // heading text from the template
+  sectionRules: {          // parsed section-rules fence content, or null
+    required?: boolean;
+    repeatable?: boolean;
+    heading?: { pattern?: string; enum?: string[] };
+    table?: { columns?: string[]; key_column?: string; value_column?: string };
+    list?: { item?: { pattern?: string } };
+    code?: { lang?: string };
+    formula?: string;
+    min?: number;
+    max?: number;
+    severity?: string;
+    message?: string;
+  } | null;
+  children: BodySchemaNode[];
+}
+```
+
+### `findSectionRuleBlocks(markdownBody)`
+
+Find every `` ```yaml section-rules `` block in a document body. Useful for detecting
+leaked template-authoring constructs in authored documents.
+
+```js
+import { findSectionRuleBlocks } from 'claude-code-vault-keeper';
+import { parseDocument } from 'claude-code-vault-keeper';
+
+const doc = await parseDocument('notes/my-note.md');
+const blocks = findSectionRuleBlocks(doc.body);
+
+if (blocks.length > 0) {
+  console.error(`Document has ${blocks.length} section-rules block(s) — these belong in templates only.`);
+  for (const b of blocks) console.error(`  body line ${b.line}`);
+}
+// Returns: Array<{ line: number }> — 1-indexed body-relative lines of opening fences.
+// Returns [] when no blocks or on parse failure.
+```
+
+### Building a custom section checker
+
+Combine `loadTemplateRules` and `applyBodySchema` to check body sections in any script:
+
+```js
+import { loadTemplateRules, applyBodySchema } from 'claude-code-vault-keeper';
+import { parseDocument } from 'claude-code-vault-keeper';
+
+const projectRoot = process.cwd();
+const doc = await parseDocument('docs/prd-001-checkout.md');
+const schema = await loadTemplateRules(doc.frontmatter.template, projectRoot);
+
+if (schema?.bodySchema?.length > 0) {
+  const docMeta = {
+    repoRelativePath: 'docs/prd-001-checkout.md',
+    fileExists: (p) => existsSync(join(projectRoot, p)),
+  };
+  const issues = applyBodySchema(schema.bodySchema, doc.body, docMeta, doc.frontmatter);
+  for (const iss of issues) {
+    console.log(`[${iss.level}] ${iss.field}: ${iss.message}`);
+  }
+}
+```
+
 ## Pre-commit script example
 
 ```js
