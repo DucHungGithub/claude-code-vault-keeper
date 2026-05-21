@@ -398,3 +398,84 @@ describe('getFrontmatter / getEntry', () => {
     expect(entry.outLinks.length).toBeGreaterThan(0);
   });
 });
+
+// ── removeFile (P5 — external file deletion / rename support) ────────────────
+
+describe('removeFile', () => {
+  test('removes doc from index → no longer in allEntries', async () => {
+    const abs = writeDoc('note.md', fm({ title: 'Note' }));
+
+    const index = new VaultIndex(tmpDir);
+    await index.ensureLoaded();
+
+    expect(index.allEntries().length).toBe(1);
+    index.removeFile(abs);
+    expect(index.allEntries().length).toBe(0);
+  });
+
+  test('removes id from _idMap → resolveId returns null', async () => {
+    const abs = writeDoc('prd-001-foo.md', fm({ title: 'PRD' }));
+
+    const index = new VaultIndex(tmpDir);
+    await index.ensureLoaded();
+
+    expect(index.resolveId('prd-001')).toBe(abs);
+    index.removeFile(abs);
+    expect(index.resolveId('prd-001')).toBeNull();
+  });
+
+  test('cleans up outgoing edges → backlinks on target no longer reference removed doc', async () => {
+    const target = writeDoc('target.md', fm({ title: 'Target' }));
+    const source = writeDoc('source.md', fm({ title: 'Source' }, '\n[t](target.md)'));
+
+    const index = new VaultIndex(tmpDir);
+    await index.ensureLoaded();
+
+    expect(index.getBacklinks(target)).toHaveLength(1);
+
+    // Remove source → its outgoing edge to target must be cleaned up
+    index.removeFile(source);
+    expect(index.getBacklinks(target)).toHaveLength(0);
+  });
+
+  test('clears incoming-link bucket for removed doc', async () => {
+    const doc = writeDoc('doc.md', fm({ title: 'Doc' }));
+
+    const index = new VaultIndex(tmpDir);
+    await index.ensureLoaded();
+
+    index.removeFile(doc);
+    // Bucket should be empty after removal
+    expect(index.getBacklinks(doc)).toHaveLength(0);
+  });
+
+  test('no-op for unknown path → does not throw', async () => {
+    const index = new VaultIndex(tmpDir);
+    await index.ensureLoaded();
+
+    // Should not throw for a path that was never indexed
+    expect(() => index.removeFile(join(tmpDir, 'nonexistent.md'))).not.toThrow();
+  });
+
+  test('search no longer finds removed doc', async () => {
+    const abs = writeDoc('unique-title.md', fm({ title: 'UniqueSpecialTitle' }));
+
+    const index = new VaultIndex(tmpDir);
+    await index.ensureLoaded();
+
+    expect(index.search('UniqueSpecialTitle')).toHaveLength(1);
+    index.removeFile(abs);
+    expect(index.search('UniqueSpecialTitle')).toHaveLength(0);
+  });
+
+  test('getFrontmatter returns null after removal', async () => {
+    const abs = writeDoc('doc.md', fm({ title: 'Doc', status: 'draft' }));
+
+    const index = new VaultIndex(tmpDir);
+    await index.ensureLoaded();
+
+    expect(index.getFrontmatter(abs)).not.toBeNull();
+    index.removeFile(abs);
+    expect(index.getFrontmatter(abs)).toBeNull();
+  });
+});

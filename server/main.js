@@ -35,6 +35,8 @@ import {
   TextDocuments,
   TextDocumentSyncKind,
   SymbolKind,
+  DidChangeWatchedFilesNotification,
+  FileChangeType,
 } from "vscode-languageserver/node.js";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -147,6 +149,44 @@ connection.onInitialize((params) => {
 
 connection.onInitialized(() => {
   connection.console.info("claude-code-vault-keeper: initialized, ready for documents");
+
+  // P5: Register a file system watcher so the vault index stays fresh when
+  // files change outside the editor (git pull, CLI scripts, file manager
+  // renames, etc.). Without this, backlinks and workspace-symbol results
+  // stay stale until the next LSP restart.
+  //
+  // Not all LSP clients support dynamic capability registration — the call
+  // is best-effort; failure is silently tolerated. Claude Code supports it
+  // as of v1.x.
+  connection.client.register(
+    DidChangeWatchedFilesNotification.type,
+    { watchers: [{ globPattern: "**/*.md" }] },
+  ).catch((err) => {
+    connection.console.warn(
+      `vault-keeper: could not register file watcher (client may not support it): ${err.message ?? err}`,
+    );
+  });
+});
+
+// P5: Handle file changes from the OS watcher (external git operations,
+// renames in file manager, CLI scripts, etc.).
+//
+// FileChangeType: 1=Created, 2=Changed, 3=Deleted
+connection.onDidChangeWatchedFiles(({ changes }) => {
+  if (!vaultIndex) return;
+  for (const change of changes) {
+    if (!change.uri?.startsWith("file://")) continue;
+    const absPath = fileURLToPath(change.uri);
+    if (change.type === FileChangeType.Deleted) {
+      vaultIndex.removeFile(absPath);
+      connection.console.info(`vault-keeper: index removed (deleted) ${absPath}`);
+    } else {
+      // Created (1) or Changed (2) — refreshFile handles both
+      vaultIndex.refreshFile(absPath).catch((err) =>
+        connection.console.error(`vault index refresh error (watcher): ${err.stack || err}`),
+      );
+    }
+  }
 });
 
 // ── Validation pipeline ──────────────────────────────────────────────────────

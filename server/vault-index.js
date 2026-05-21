@@ -62,6 +62,32 @@ export class VaultIndex {
     this._loading = null;
   }
 
+  /**
+   * Remove a file from the index entirely.
+   *
+   * Called when a file is deleted or renamed outside the editor (P5 — file
+   * watcher). After removal: backlinks pointing TO this file remain in
+   * `_incoming` for other files (those are outgoing edges FROM other docs,
+   * not this one's entry), but the deleted file's OWN outgoing edges are
+   * cleaned up so stale backlinks to THIRD files are removed.
+   *
+   * @param {string} absPath - absolute path of the file to remove
+   */
+  removeFile(absPath) {
+    if (!this._docs.has(absPath)) return;
+    // P5: evict id from _idMap (kept in sync with _docs)
+    const entry = this._docs.get(absPath);
+    if (entry?.id) this._idMap.delete(entry.id.toLowerCase());
+    // Remove this file's outgoing edges from the incoming-link graph
+    this._removeOutgoingEdges(absPath);
+    // Remove the doc entry itself
+    this._docs.delete(absPath);
+    // Purge any incoming-link bucket that pointed TO this file (stale refs
+    // from other docs that linked here — they'll get cleaned up on next
+    // refreshFile of those source docs).
+    this._incoming.delete(absPath);
+  }
+
   /** Refresh a single file's entry after didSave. */
   async refreshFile(absPath) {
     if (!absPath.startsWith(this._vaultRoot) || !absPath.endsWith(".md")) return;
