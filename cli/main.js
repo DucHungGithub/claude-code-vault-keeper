@@ -52,6 +52,7 @@ Usage:
 Commands:
   validate                     Validate vault docs against template rules
   lint-templates               Meta-validate all template files for schema errors
+  add-template <name>          Scaffold a new template file
   doctor                       Diagnose environment, config, plugin state
   install-claude-code-plugin   Install this plugin into Claude Code
   init [dir]                   Scaffold a minimal vault skeleton in <dir>
@@ -83,6 +84,23 @@ Exit codes:
 
 The legacy bin \`vault-keeper-validate <opts>\` is equivalent to
 \`vault-keeper validate <opts>\` — both remain supported.
+`,
+  'add-template': `vault-keeper add-template <name> [options]
+
+Scaffold a new template file at templates/<name>-template.md with a complete
+v0.9.0 composable-schema skeleton (fields block, $path pattern, section-rules
+fences, and inline comments for every supported primitive).
+
+Arguments:
+  <name>            Template name in lowercase-slug form (e.g. "book", "decision")
+
+Options:
+  --root <path>     Vault project root (else CLAUDE_PROJECT_DIR, else walk-up)
+  --force           Overwrite an existing template file
+
+Exit codes:
+  0  template created (or overwritten with --force)
+  1  name missing, invalid, or template exists without --force
 `,
   'lint-templates': `vault-keeper lint-templates [template-path ...] [options]
 
@@ -176,6 +194,11 @@ async function main(argv = process.argv.slice(2)) {
     case 'lint-templates': {
       const lintMod = await import('./lint-templates.js');
       await lintMod.main(rest);
+      return 0;
+    }
+    case 'add-template': {
+      const addMod = await import('./add-template.js');
+      await addMod.main(rest);
       return 0;
     }
     case 'doctor':
