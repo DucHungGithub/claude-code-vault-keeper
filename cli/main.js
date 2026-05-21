@@ -51,6 +51,7 @@ Usage:
 
 Commands:
   validate                     Validate vault docs against template rules
+  lint-templates               Meta-validate all template files for schema errors
   doctor                       Diagnose environment, config, plugin state
   install-claude-code-plugin   Install this plugin into Claude Code
   init [dir]                   Scaffold a minimal vault skeleton in <dir>
@@ -82,6 +83,23 @@ Exit codes:
 
 The legacy bin \`vault-keeper-validate <opts>\` is equivalent to
 \`vault-keeper validate <opts>\` — both remain supported.
+`,
+  'lint-templates': `vault-keeper lint-templates [template-path ...] [options]
+
+Meta-validate template files in the vault. Catches schema authoring errors
+(unknown primitives, invalid regex, bad modifiers) before they cause confusing
+errors on every document that references the broken template.
+
+Arguments:
+  [template-path ...]   Specific template(s) to lint (default: all templates/)
+
+Options:
+  --root <path>     Vault project root (else CLAUDE_PROJECT_DIR, else walk-up)
+  --json            Emit a machine-readable report to stdout
+
+Exit codes:
+  0  all templates valid
+  1  one or more templates have issues, or runtime error
 `,
   doctor: `vault-keeper doctor [options]
 
@@ -153,6 +171,11 @@ async function main(argv = process.argv.slice(2)) {
       // its exit semantics (defensive fallthrough).
       const mod = await import('./validate-documents.js');
       await mod.main(rest);
+      return 0;
+    }
+    case 'lint-templates': {
+      const lintMod = await import('./lint-templates.js');
+      await lintMod.main(rest);
       return 0;
     }
     case 'doctor':
