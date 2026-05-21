@@ -450,6 +450,43 @@ export function serveDashboard({ data, projectRoot: initialRoot, port = 0, open 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url || '/', 'http://127.0.0.1');
 
+    if (req.method === 'GET' && url.pathname === '/api/events') {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.write('data: {"type":"connected"}\n\n');
+
+      // Watch vault root for markdown file changes
+      const { watch } = await import('node:fs');
+      let debounceTimer = null;
+      const watcher = watch(projectRoot, { recursive: true }, async (_event, filename) => {
+        if (!filename) return;
+        const isMarkdown = filename.endsWith('.md');
+        const isConfig = filename === 'vault-keeper.json' || filename.endsWith('/vault-keeper.json');
+        if (!isMarkdown && !isConfig) return;
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(async () => {
+          try {
+            currentData = await scanVault(projectRoot);
+            const summary = currentData.summary || {};
+            const validated = Math.max(0, (summary.total || 0) - (summary.skipped || 0));
+            const rate = validated > 0 ? (summary.valid || 0) / validated : 1;
+            res.write('data: ' + JSON.stringify({
+              type: 'scan-complete',
+              file: filename,
+              summary: { total: summary.total, valid: summary.valid, invalid: summary.invalid, rate: Math.round(rate * 1000) / 1000 },
+            }) + '\n\n');
+          } catch { /* ignore scan errors */ }
+        }, 600);
+      });
+
+      req.on('close', () => { clearTimeout(debounceTimer); try { watcher.close(); } catch {} });
+      return;
+    }
+
     if (req.method === 'GET' && url.pathname === '/') {
       send(res, 200, renderDashboardHtml(currentData), 'text/html; charset=utf-8');
       return;

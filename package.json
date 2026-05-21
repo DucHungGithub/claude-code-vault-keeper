@@ -23,6 +23,7 @@
     "./tui/ansi": "./tui/components/ansi.js",
     "./ui/dashboard": "./ui/dashboard.js",
     "./ui/report-template": "./ui/report-template.js",
+    "./cli/fix-documents": "./cli/fix-documents.js",
     "./lib/*": "./lib/*",
     "./cli/*": "./cli/*",
     "./tui/*": "./tui/*",

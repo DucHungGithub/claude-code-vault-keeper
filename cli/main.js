@@ -56,6 +56,7 @@ Commands:
   validate                     Validate vault docs against template rules
   lint-templates               Meta-validate all template files for schema errors
   add-template <name>          Scaffold a new template file
+  fix                          Auto-fix common validation errors
   doctor                       Diagnose environment, config, plugin state
   install-claude-code-plugin   Install this plugin into Claude Code
   init [dir]                   Scaffold a minimal vault skeleton in <dir>
@@ -248,6 +249,11 @@ async function main(argv = process.argv.slice(2)) {
     case 'add-template': {
       const addMod = await import('./add-template.js');
       await addMod.main(rest);
+      return 0;
+    }
+    case 'fix': {
+      const { main: fixMain } = await import('./fix-documents.js');
+      process.exit(await fixMain(rest));
       return 0;
     }
     case 'doctor':

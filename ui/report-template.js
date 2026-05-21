@@ -43,6 +43,40 @@ export function generateReport(data) {
       --accent: #2563eb;
       --shadow: 0 1px 2px rgba(20, 28, 38, 0.08);
     }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1117; --panel: #1a1d27; --ink: #e8eaf0; --muted: #8b90a0;
+        --line: #2a2d3a; --good: #22c55e; --warn: #f59e0b; --bad: #ef4444; --accent: #3b82f6;
+      }
+    }
+    html.dark {
+      --bg: #0f1117; --panel: #1a1d27; --ink: #e8eaf0; --muted: #8b90a0;
+      --line: #2a2d3a; --good: #22c55e; --warn: #f59e0b; --bad: #ef4444; --accent: #3b82f6;
+    }
+    #theme-toggle {
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      min-height: 32px;
+      padding: 4px 8px;
+    }
+    @keyframes confetti-fall {
+      0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+      100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+    }
+    #shortcuts-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center; }
+    #shortcuts-overlay.open { display: flex; }
+    #shortcuts-overlay kbd {
+      display: inline-block;
+      background: var(--line);
+      border: 1px solid var(--muted);
+      border-radius: 4px;
+      font-family: ui-monospace, monospace;
+      font-size: 12px;
+      padding: 1px 6px;
+    }
 
     * { box-sizing: border-box; }
     body {
@@ -380,10 +414,16 @@ export function generateReport(data) {
         <h1>Vault Keeper</h1>
         <p class="meta" id="vault-root"></p>
         <p class="meta" id="generated-at"></p>
+        <p class="meta" style="display:flex;align-items:center;gap:6px;margin-top:4px">
+          <span id="sse-indicator" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted)" title="Live: connecting..."></span>
+          <span style="font-size:12px">Live updates</span>
+        </p>
       </div>
       <div class="score">
+        <button type="button" id="theme-toggle" title="Toggle dark mode">🌙</button>
         <strong id="score"></strong>
         <span>valid documents</span>
+        <div id="motivational-msg" style="font-size:13px;margin-top:6px;color:var(--muted)"></div>
         <button type="button" id="header-change-vault" style="display:block;margin-top:8px;font-size:12px;padding:5px 10px;">📂 Change vault</button>
       </div>
     </div>
@@ -609,6 +649,23 @@ Add links here.</textarea>
   </main>
   <script id="vault-data" type="application/json">${safeData}</script>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="confetti-container" style="position:fixed;top:0;left:0;width:100%;height:0;pointer-events:none;z-index:999;overflow:visible"></div>
+  <div id="shortcuts-overlay" role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts">
+    <div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px;min-width:320px">
+      <h3 style="margin:0 0 16px">Keyboard Shortcuts</h3>
+      <table style="width:100%;font-size:14px">
+        <tbody>
+          <tr><td style="padding:6px 8px"><kbd>h</kbd></td><td style="padding:6px 8px">Switch to Health tab</td></tr>
+          <tr><td style="padding:6px 8px"><kbd>s</kbd></td><td style="padding:6px 8px">Switch to Start tab</td></tr>
+          <tr><td style="padding:6px 8px"><kbd>c</kbd></td><td style="padding:6px 8px">Switch to Create tab</td></tr>
+          <tr><td style="padding:6px 8px"><kbd>r</kbd></td><td style="padding:6px 8px">Scan whole vault</td></tr>
+          <tr><td style="padding:6px 8px"><kbd>Esc</kbd></td><td style="padding:6px 8px">Close any open modal</td></tr>
+          <tr><td style="padding:6px 8px"><kbd>?</kbd></td><td style="padding:6px 8px">Toggle this shortcuts panel</td></tr>
+        </tbody>
+      </table>
+      <p style="margin:12px 0 0;color:var(--muted);font-size:12px">Press ? or Escape to close</p>
+    </div>
+  </div>
   <div class="modal-overlay" id="folder-picker-overlay" role="dialog" aria-modal="true" aria-labelledby="folder-picker-title">
     <div class="modal-dialog">
       <div class="modal-head">
@@ -1532,9 +1589,99 @@ Add links here.</textarea>
         installAiKit.disabled = false;
       }
     });
+    // ── Dark mode toggle ─────────────────────────────────────────────────────────
+    const themeToggle = document.getElementById('theme-toggle');
+    const applyTheme = (t) => {
+      document.documentElement.classList.toggle('dark', t === 'dark');
+      themeToggle.textContent = t === 'dark' ? '☀️' : '🌙';
+    };
+    applyTheme(localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+    themeToggle.addEventListener('click', () => {
+      const next = document.documentElement.classList.contains('dark') ? 'light' : 'dark';
+      localStorage.setItem('theme', next);
+      applyTheme(next);
+    });
+
+    // ── Motivational message ──────────────────────────────────────────────────────
+    const motivationalMsg = document.getElementById('motivational-msg');
+    const invalid = summary.invalid || 0;
+    if (rate >= 1.0) {
+      motivationalMsg.textContent = '🎉 Perfect vault!';
+    } else if (rate >= 0.95) {
+      motivationalMsg.textContent = '🚀 Almost perfect! Fix ' + String(invalid) + ' more.';
+    } else if (rate >= 0.8) {
+      motivationalMsg.textContent = '💪 Good shape! ' + String(invalid) + ' docs to fix.';
+    } else {
+      motivationalMsg.textContent = '🔧 ' + String(invalid) + ' docs need attention.';
+    }
+
+    // ── Confetti burst (100% score, once per session) ────────────────────────────
+    if (rate >= 1.0 && !sessionStorage.getItem('confetti-fired')) {
+      sessionStorage.setItem('confetti-fired', '1');
+      const container = document.getElementById('confetti-container');
+      const colors = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#ec4899', '#14b8a6', '#f97316'];
+      for (let i = 0; i < 40; i++) {
+        const piece = document.createElement('div');
+        const size = Math.floor(Math.random() * 8) + 6;
+        piece.style.cssText = [
+          'position:absolute',
+          'width:' + String(size) + 'px',
+          'height:' + String(size) + 'px',
+          'background:' + colors[Math.floor(Math.random() * colors.length)],
+          'border-radius:' + (Math.random() > 0.5 ? '50%' : '2px'),
+          'left:' + String(Math.random() * 100) + '%',
+          'top:0',
+          'animation:confetti-fall ' + String((Math.random() * 2 + 1.5).toFixed(2)) + 's ease-in ' + String((Math.random() * 0.8).toFixed(2)) + 's forwards',
+        ].join(';');
+        container.appendChild(piece);
+      }
+    }
+
+    // ── Keyboard shortcuts ────────────────────────────────────────────────────────
+    const shortcutsOverlay = document.getElementById('shortcuts-overlay');
+    const toggleShortcuts = () => shortcutsOverlay.classList.toggle('open');
+    const closeShortcuts = () => shortcutsOverlay.classList.remove('open');
+    shortcutsOverlay.addEventListener('click', (e) => { if (e.target === shortcutsOverlay) closeShortcuts(); });
+
+    const switchTab = (tabId) => {
+      document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
+      const btn = document.querySelector('.tab[data-tab="' + tabId + '"]');
+      if (btn) { btn.classList.add('active'); document.getElementById(tabId).classList.add('active'); }
+    };
+
+    document.addEventListener('keydown', (e) => {
+      const tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === '?') { e.preventDefault(); toggleShortcuts(); return; }
+      if (e.key === 'Escape') { closeShortcuts(); closeFolderPicker(); return; }
+      if (shortcutsOverlay.classList.contains('open')) return;
+      if (e.key === 'h') switchTab('health-panel');
+      else if (e.key === 's') switchTab('start-panel');
+      else if (e.key === 'c') switchTab('templates-panel');
+      else if (e.key === 'r') document.getElementById('health-scan-all-btn').click();
+    });
+
     resetFields(templatePresets.decision.fields);
     renderTemplate();
     renderDocument();
+
+    // ── Real-time updates via SSE ───────────────────────────────────────────────
+    if (typeof EventSource !== 'undefined') {
+      const evtSource = new EventSource('/api/events');
+      const sseIndicator = document.getElementById('sse-indicator');
+      evtSource.onopen = () => { if (sseIndicator) { sseIndicator.title = 'Live: connected'; sseIndicator.style.background = 'var(--good)'; } };
+      evtSource.onerror = () => { if (sseIndicator) { sseIndicator.title = 'Live: disconnected'; sseIndicator.style.background = 'var(--muted)'; } };
+      evtSource.onmessage = (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          if (payload.type === 'scan-complete') {
+            notify('Vault updated (' + (payload.file || 'file changed') + '). Reloading...', 'good');
+            window.setTimeout(() => window.location.reload(), 800);
+          }
+        } catch {}
+      };
+    }
   </script>
 </body>
 </html>
