@@ -1,8 +1,9 @@
 # vault-keeper
 
-[![CI](https://github.com/nguyenvanduocit/claude-code-vault-keeper/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nguyenvanduocit/claude-code-vault-keeper/actions/workflows/ci.yml)
+[![CI](https://github.com/DucHungGithub/claude-code-vault-keeper/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DucHungGithub/claude-code-vault-keeper/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/claude-code-vault-keeper.svg)](https://www.npmjs.com/package/claude-code-vault-keeper)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-859%20passing-brightgreen)](https://github.com/DucHungGithub/claude-code-vault-keeper/actions)
 
 *Published on npm as **`claude-code-vault-keeper`** — the `vault-keeper`
 binary is what you'll actually type.*

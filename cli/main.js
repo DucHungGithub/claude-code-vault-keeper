@@ -141,14 +141,25 @@ Install this package into Claude Code via its plugin manifest. Equivalent to:
 Requires the \`claude\` CLI on \$PATH. If absent, the command prints the
 manual install steps instead of silently failing.
 `,
-  init: `vault-keeper init [dir]
+  init: `vault-keeper init [dir] [--preset <name>] [--force]
 
-Scaffold a fresh vault skeleton:
+Scaffold a fresh vault skeleton.
+
+Options:
+  --preset <name>   Use an opinionated preset instead of the minimal default.
+                    Available presets:
+                      obsidian      Note-taking with tags, aliases, MOC pattern
+                      zettelkasten  Atomic notes with permanent/fleeting split
+                      adr           Architecture Decision Records for software teams
+                      book-notes    Book annotation vault with author, rating, status
+  --force           Overwrite existing files.
+
+Default scaffold (no --preset):
   <dir>/.claude/vault-keeper.json   — minimal config (vaultRoot=notes)
   <dir>/templates/note-template.md  — minimal template with fields schema
   <dir>/notes/note-001-hello.md     — sample conforming document
 
-Refuses to overwrite an existing non-empty <dir>. Pass --force to override.
+Refuses to overwrite an existing non-empty <dir> without --force.
 `,
 };
 
@@ -448,8 +459,10 @@ template rule fire.
 ## Relationships
 `;
 
-function runInit(args) {
+async function runInit(args) {
   const force = args.includes('--force');
+  const presetIdx = args.indexOf('--preset');
+  const presetId = presetIdx >= 0 ? args[presetIdx + 1] : null;
   const dir = args.find((a) => !a.startsWith('-')) ?? '.';
   const targetDir = resolve(process.cwd(), dir);
 
@@ -470,27 +483,41 @@ function runInit(args) {
     mkdirSync(targetDir, { recursive: true });
   }
 
-  const writes = [
-    {
-      path: join(targetDir, '.claude', 'vault-keeper.json'),
-      content: SCAFFOLD_VAULT_CONFIG,
-    },
-    {
-      path: join(targetDir, 'templates', 'note-template.md'),
-      content: SCAFFOLD_TEMPLATE,
-    },
-    {
-      path: join(targetDir, 'notes', 'note-001-hello.md'),
-      content: SCAFFOLD_DOC,
-    },
-  ];
+  let files;
+  let presetLabel = 'default';
 
-  for (const { path, content } of writes) {
+  if (presetId) {
+    // Preset mode: load from cli/init-presets.js
+    let presetsModule;
+    try {
+      presetsModule = await import('./init-presets.js');
+    } catch {
+      console.error('❌ Could not load init-presets.js. Reinstall the package.');
+      return 1;
+    }
+    if (!presetsModule.PRESETS[presetId]) {
+      const known = presetsModule.listPresets().join(', ');
+      console.error(`❌ Unknown preset '${presetId}'. Available: ${known}`);
+      return 1;
+    }
+    files = presetsModule.PRESETS[presetId].files.map(({ path: relPath, content }) => ({
+      path: join(targetDir, relPath),
+      content,
+    }));
+    presetLabel = `${presetId} preset`;
+  } else {
+    // Default minimal scaffold
+    files = [
+      { path: join(targetDir, '.claude', 'vault-keeper.json'), content: SCAFFOLD_VAULT_CONFIG },
+      { path: join(targetDir, 'templates', 'note-template.md'), content: SCAFFOLD_TEMPLATE },
+      { path: join(targetDir, 'notes', 'note-001-hello.md'), content: SCAFFOLD_DOC },
+    ];
+  }
+
+  for (const { path, content } of files) {
     mkdirSync(dirname(path), { recursive: true });
     if (existsSync(path) && !force) {
-      console.error(
-        `❌ ${path} already exists. Pass --force to overwrite.`,
-      );
+      console.error(`❌ ${path} already exists. Pass --force to overwrite.`);
       return 1;
     }
     writeFileSync(path, content, 'utf-8');
@@ -498,7 +525,7 @@ function runInit(args) {
   }
 
   console.log(
-    `\n✅ Vault scaffolded in ${targetDir}\n\nNext:\n  cd ${dir}\n  vault-keeper validate\n`,
+    `\n✅ Vault scaffolded (${presetLabel}) in ${targetDir}\n\nNext:\n  cd ${dir}\n  vault-keeper validate\n`,
   );
   return 0;
 }

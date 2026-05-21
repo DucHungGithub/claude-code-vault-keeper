@@ -1,0 +1,131 @@
+name: 'vault-keeper validate'
+description: >
+  Validate a markdown vault against template-driven field rules.
+  Fails the workflow on any schema violation — wrong field types,
+  missing required fields, invalid enum values, broken file references.
+  Zero configuration: drop it in and vault-keeper auto-detects the vault root.
+
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+inputs:
+  root:
+    description: >
+      Path to the vault project root (directory containing templates/ or
+      .claude/vault-keeper.json). Defaults to the repository root.
+    required: false
+    default: '.'
+
+  path:
+    description: >
+      Validate only a specific file or sub-directory instead of the whole vault.
+    required: false
+    default: ''
+
+  strict:
+    description: >
+      Fail on warnings as well as errors (CI-strict mode).
+      Set to 'true' to enable.
+    required: false
+    default: 'false'
+
+  version:
+    description: >
+      npm version of claude-code-vault-keeper to install (e.g. '0.9.0').
+      Defaults to 'latest'.
+    required: false
+    default: 'latest'
+
+outputs:
+  result:
+    description: 'Validation result: "pass" or "fail"'
+    value: ${{ steps.validate.outputs.result }}
+
+  error-count:
+    description: 'Number of validation errors found'
+    value: ${{ steps.validate.outputs.error_count }}
+
+  warning-count:
+    description: 'Number of validation warnings found'
+    value: ${{ steps.validate.outputs.warning_count }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install vault-keeper
+      shell: bash
+      run: |
+        npm install --global claude-code-vault-keeper@${{ inputs.version }} \
+          --no-audit --no-fund --prefer-offline 2>/dev/null || \
+        npm install --global claude-code-vault-keeper@${{ inputs.version }} \
+          --no-audit --no-fund
+
+    - name: Run vault-keeper validate
+      id: validate
+      shell: bash
+      run: |
+        set +e
+
+        ARGS="--root ${{ inputs.root }} --json"
+        if [ -n "${{ inputs.path }}" ]; then
+          ARGS="$ARGS --path ${{ inputs.path }}"
+        fi
+        if [ "${{ inputs.strict }}" = "true" ]; then
+          ARGS="$ARGS --strict"
+        fi
+
+        vault-keeper validate $ARGS > /tmp/vk-report.json 2>&1
+        EXIT_CODE=$?
+
+        # Parse summary from JSON output
+        ERROR_COUNT=$(node -e "
+          try {
+            const r = JSON.parse(require('fs').readFileSync('/tmp/vk-report.json','utf8'));
+            process.stdout.write(String(r.summary?.errorCount ?? 0));
+          } catch { process.stdout.write('0'); }
+        " 2>/dev/null || echo "0")
+
+        WARNING_COUNT=$(node -e "
+          try {
+            const r = JSON.parse(require('fs').readFileSync('/tmp/vk-report.json','utf8'));
+            process.stdout.write(String(r.summary?.warningCount ?? 0));
+          } catch { process.stdout.write('0'); }
+        " 2>/dev/null || echo "0")
+
+        RESULT="pass"
+        if [ $EXIT_CODE -ne 0 ]; then
+          RESULT="fail"
+        fi
+
+        echo "result=$RESULT"          >> $GITHUB_OUTPUT
+        echo "error_count=$ERROR_COUNT"  >> $GITHUB_OUTPUT
+        echo "warning_count=$WARNING_COUNT" >> $GITHUB_OUTPUT
+
+        # Pretty-print the report to Actions log
+        if [ -f /tmp/vk-report.json ]; then
+          node -e "
+            try {
+              const r = JSON.parse(require('fs').readFileSync('/tmp/vk-report.json','utf8'));
+              const s = r.summary;
+              if (s) {
+                console.log('');
+                console.log('vault-keeper summary:');
+                console.log('  Total: ' + s.total + '  Valid: ' + s.valid + '  Invalid: ' + s.invalid);
+                console.log('  Errors: ' + s.errorCount + '  Warnings: ' + s.warningCount);
+              }
+              if (r.results) {
+                for (const doc of r.results.filter(d => !d.valid && !d.skipped)) {
+                  console.log('');
+                  console.log('  ❌ ' + doc.filepath);
+                  for (const e of doc.errors) {
+                    console.log('     ' + e.field + ': ' + e.message);
+                    if (e.fix) console.log('        fix: ' + e.fix);
+                  }
+                }
+              }
+            } catch { }
+          " 2>/dev/null || cat /tmp/vk-report.json
+        fi
+
+        exit $EXIT_CODE
