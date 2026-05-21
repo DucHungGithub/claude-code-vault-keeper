@@ -115,11 +115,16 @@ jobs:
           # NPM_TOKEN repo secret and this env line takes over.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (with LSP bundle as asset)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           name: ${{ inputs.tag || github.ref_name }}
           body_path: /tmp/release-body.md
           generate_release_notes: ${{ steps.changelog.outputs.fallback == 'true' }}
+          # A1: bundle is excluded from npm tarball (too large for API-only installs).
+          # Ship it as a release asset instead — `claude plugin marketplace add`
+          # installs from git (bundle included in repo), while npm users only
+          # download the ~100 KB library + CLI surface.
+          files: server/main.bundled.cjs
           fail_on_unmatched_files: false
