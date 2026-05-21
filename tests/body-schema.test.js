@@ -828,7 +828,7 @@ describe("zero domain-word branching", () => {
     const expected = [
       "code", "description", "enum", "exists", "formula", "heading",
       "list", "max", "min", "pattern", "repeatable", "required",
-      "table", "type", "uniqueItems",
+      "state_machine", "table", "type", "uniqueItems",
     ].sort();
     expect(keys).toEqual(expected);
   });
