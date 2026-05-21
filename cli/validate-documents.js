@@ -22,11 +22,12 @@
  *   --json            Output results as JSON
  */
 
-import { stat } from 'fs/promises';
+import { stat, readFile, writeFile } from 'fs/promises';
 import { realpathSync, existsSync } from 'node:fs';
 import { join, dirname, relative } from 'path';
 import { pathToFileURL } from 'node:url';
 import { glob } from 'glob';
+import matter from 'gray-matter';
 import { resolveProjectRoot } from '../lib/vault-config.js';
 import { VaultIndex } from '../server/vault-index.js';
 import { parseDocument, resolveDocPath } from '../lib/doc-io.js';
@@ -46,6 +47,45 @@ import {
   validatePaths,
   validateSectionRulesLeak,
 } from '../lib/validators.js';
+
+/**
+ * Apply auto-fixes to a document file.
+ * Dry-run by default (write=false). Pass write=true to persist changes.
+ *
+ * Supported fixTypes:
+ *   'remove-field' — delete the field from frontmatter (template-meta-leak)
+ *   'add-field'    — insert field with placeholder value (required-missing)
+ *
+ * Returns { fixed: number, applied: Issue[], content: string|null }
+ * `content` is the new file content (for dry-run inspection); null if nothing changed.
+ */
+export async function applyFixes(filepath, issues, { write = false } = {}) {
+  const fixable = issues.filter((i) => i.autoFixable);
+  if (fixable.length === 0) return { fixed: 0, applied: [], content: null };
+
+  const raw = await readFile(filepath, 'utf-8');
+  const parsed = matter(raw);
+  const fm = { ...parsed.data }; // shallow copy — don't mutate original
+  const body = parsed.content;
+
+  const applied = [];
+  for (const iss of fixable) {
+    if (iss.fixType === 'remove-field' && iss.field in fm) {
+      delete fm[iss.field];
+      applied.push(iss);
+    } else if (iss.fixType === 'add-field' && !(iss.field in fm) && iss.field !== '$path') {
+      // $path is a synthetic field (repo-relative path) — never write it to frontmatter
+      fm[iss.field] = iss.placeholder ?? '';
+      applied.push(iss);
+    }
+  }
+
+  if (applied.length === 0) return { fixed: 0, applied: [], content: null };
+
+  const newContent = matter.stringify(body, fm);
+  if (write) await writeFile(filepath, newContent, 'utf-8');
+  return { fixed: applied.length, applied, content: newContent };
+}
 
 /**
  * Validate a single document.
@@ -599,6 +639,8 @@ async function main(argv = process.argv.slice(2)) {
     strict: args.includes('--strict'),
     json: args.includes('--json'),
     orphans: args.includes('--orphans'),
+    fix: args.includes('--fix'),
+    write: args.includes('--fix') && args.includes('--write'),
   };
 
   // Resolve the vault project root (--root / CLAUDE_PROJECT_DIR / walk-up)
@@ -690,6 +732,39 @@ async function main(argv = process.argv.slice(2)) {
 
     // Generate summary
     const summary = generateSummary(validationResults);
+
+    // --fix mode: apply auto-fixes (dry-run unless --write is also passed)
+    if (options.fix) {
+      let totalFixed = 0;
+      const fixLog = [];
+      for (const result of validationResults) {
+        if (result.skipped) continue;
+        const allIssues = [...(result.errors || []), ...(result.warnings || [])];
+        const { fixed, applied } = await applyFixes(result.filepath, allIssues, { write: options.write });
+        if (fixed > 0) {
+          totalFixed += fixed;
+          fixLog.push({ filepath: result.filepath, applied });
+        }
+      }
+      if (!options.json) {
+        if (totalFixed === 0) {
+          console.log('\nNo auto-fixable issues found.');
+        } else {
+          const mode = options.write ? 'Applied' : 'Would apply (dry-run — add --write to persist)';
+          console.log(`\n🔧 ${mode} ${totalFixed} fix(es):`);
+          for (const { filepath, applied } of fixLog) {
+            const rel = relative(process.cwd(), filepath);
+            console.log(`  ${rel}`);
+            for (const iss of applied) {
+              console.log(`    ${iss.fixType}: ${iss.field}`);
+            }
+          }
+          if (!options.write) {
+            console.log('\n  Run with --write to apply changes.');
+          }
+        }
+      }
+    }
 
     // Output results
     if (options.json) {
