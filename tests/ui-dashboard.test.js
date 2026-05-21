@@ -463,6 +463,124 @@ describe('ui/dashboard.js', () => {
       rmSync(root2, { recursive: true, force: true });
     }
   });
+
+  // ── Feature A: Guided tour ─────────────────────────────────────────────────
+  test('renderDashboardHtml includes guided tour overlay HTML', () => {
+    const data = buildDashboardData(RESULTS, '/tmp/vault');
+    const html = renderDashboardHtml(data);
+    expect(html).toContain('id="tour-overlay"');
+    expect(html).toContain('id="tour-next-btn"');
+    expect(html).toContain('id="tour-skip-btn"');
+    expect(html).toContain('id="tour-step-counter"');
+  });
+
+  // ── Feature A: Demo vault API ──────────────────────────────────────────────
+  test('serveDashboard POST /api/demo/init creates demo vault and returns root', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'vk-demo-'));
+    try {
+      const data = buildDashboardData([], root);
+      const server = await serveDashboard({ data, projectRoot: root, port: 0, open: false });
+      const addr = server.address();
+      const base = 'http://127.0.0.1:' + addr.port;
+
+      const res = await fetch(base + '/api/demo/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const payload = await res.json();
+
+      expect(res.ok).toBe(true);
+      expect(typeof payload.root).toBe('string');
+      expect(payload.filesCreated).toBeGreaterThan(0);
+      expect(payload.root).not.toBe(root); // demo root is different from vault root
+
+      server.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // ── Feature B: Health badge ────────────────────────────────────────────────
+  test('serveDashboard GET /api/badge.svg returns SVG', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'vk-badge-'));
+    try {
+      const data = buildDashboardData(RESULTS, root);
+      const server = await serveDashboard({ data, projectRoot: root, port: 0, open: false });
+      const addr = server.address();
+
+      const res = await fetch('http://127.0.0.1:' + addr.port + '/api/badge.svg');
+      const svg = await res.text();
+
+      expect(res.ok).toBe(true);
+      expect(res.headers.get('content-type')).toContain('image/svg+xml');
+      expect(svg.trim()).toStartWith('<svg');
+      expect(svg).toContain('50.0%'); // RESULTS has 1 valid / 2 total = 50%
+
+      server.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('badge SVG color is green when vault is 100% valid', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'vk-badge-green-'));
+    try {
+      const allValid = [RESULTS[0]]; // only the valid doc
+      const data = buildDashboardData(allValid, root);
+      const server = await serveDashboard({ data, projectRoot: root, port: 0, open: false });
+      const addr = server.address();
+
+      const res = await fetch('http://127.0.0.1:' + addr.port + '/api/badge.svg');
+      const svg = await res.text();
+
+      // Green color for 100% — should contain a greenish fill
+      expect(svg).toContain('100.0%');
+      expect(svg).toMatch(/4c1|22c55e|brightgreen/);
+
+      server.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('renderDashboardHtml includes badge copy button', () => {
+    const data = buildDashboardData(RESULTS, '/tmp/vault');
+    const html = renderDashboardHtml(data);
+    expect(html).toContain('id="copy-badge-btn"');
+  });
+
+  // ── Feature B: Share / read-only report ───────────────────────────────────
+  test('serveDashboard GET /share returns read-only HTML without mutation buttons', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'vk-share-'));
+    try {
+      const data = buildDashboardData(RESULTS, root);
+      const server = await serveDashboard({ data, projectRoot: root, port: 0, open: false });
+      const addr = server.address();
+
+      const res = await fetch('http://127.0.0.1:' + addr.port + '/share');
+      const html = await res.text();
+
+      expect(res.ok).toBe(true);
+      expect(html).toStartWith('<!doctype html>');
+      // Read-only: should not contain mutation buttons
+      expect(html).not.toContain('id="workspace-init"');
+      expect(html).not.toContain('id="tpl-save"');
+      // But should contain health data
+      expect(html).toContain('Vault Health');
+
+      server.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // ── Feature C: Error explainer in HTML ────────────────────────────────────
+  test('renderDashboardHtml includes error explanation trigger elements', () => {
+    const data = buildDashboardData(RESULTS, '/tmp/vault');
+    const html = renderDashboardHtml(data);
+    expect(html).toContain('error-explain-btn');
+  });
 });
 
 describe('ui/report-template.js', () => {
