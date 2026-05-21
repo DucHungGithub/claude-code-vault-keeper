@@ -90,6 +90,7 @@ describe('ui/dashboard.js', () => {
     expect(html).toContain('id="folder-picker-overlay"');
     expect(html).toContain('id="folder-picker-list"');
     expect(html).toContain('id="folder-picker-close"');
+    expect(html).toContain('id="doc-search"');
     expect(html).toContain('id="doc-type-filter"');
     expect(html).toContain('id="folder-scope"');
     expect(html).toContain('id="doc-types"');
@@ -410,6 +411,26 @@ describe('ui/dashboard.js', () => {
       expect(payload.dirs).toContain('contexts');
       expect(payload.dirs).not.toContain('.hidden');
 
+      server.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('serveDashboard exposes GET /api/documents to read file content', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'vk-read-doc-'));
+    try {
+      const content = '---\ntitle: Test\n---\n\n# Test\n';
+      require('node:fs').writeFileSync(join(root, 'test.md'), content);
+      const data = buildDashboardData([], root);
+      const server = await serveDashboard({ data, projectRoot: root, port: 0, open: false });
+      const addr = server.address();
+      const base = 'http://127.0.0.1:' + addr.port;
+      const res = await fetch(base + '/api/documents?path=test.md');
+      const payload = await res.json();
+      expect(res.ok).toBe(true);
+      expect(payload.content).toBe(content);
+      expect(payload.path).toBe('test.md');
       server.close();
     } finally {
       rmSync(root, { recursive: true, force: true });

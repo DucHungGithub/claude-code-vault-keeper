@@ -522,6 +522,9 @@ export function generateReport(data) {
         <div>
           <section class="section">
             <h2>Invalid Documents</h2>
+            <div style="margin-bottom:10px">
+              <input id="doc-search" placeholder="Search by filename or error…" autocomplete="off" style="width:100%">
+            </div>
             <div class="filter-row">
               <label>
                 Filter by type
@@ -720,6 +723,10 @@ Add links here.</textarea>
         document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.remove('active'));
         tab.classList.add('active');
         document.getElementById(tab.dataset.tab).classList.add('active');
+        if (tab.dataset.tab === 'health-panel') {
+          const ds = document.getElementById('doc-search');
+          if (ds) ds.focus();
+        }
       });
     });
 
@@ -889,6 +896,7 @@ Add links here.</textarea>
 
     const docTypeFilter = document.getElementById('doc-type-filter');
     const folderScopeFilter = document.getElementById('folder-scope');
+    const docSearch = document.getElementById('doc-search');
     const allTypeOption = el('option', { value: 'all', text: 'All types' });
     docTypeFilter.append(allTypeOption);
     for (const docType of Object.keys(summary.byDocType || {}).sort()) {
@@ -904,23 +912,157 @@ Add links here.</textarea>
       if (!rel || !rel.includes('/')) return './';
       return rel.slice(0, rel.lastIndexOf('/') + 1);
     };
+
+    const attachInlineEditor = (article, docRelPath) => {
+      const textarea = el('textarea', { style: 'width:100%;min-height:200px;font-family:monospace;font-size:12px;line-height:1.5;border:1px solid var(--line);border-radius:6px;padding:8px;background:var(--bg);color:var(--ink);resize:vertical' });
+      const saveBtn = el('button', { class: 'primary save-btn', type: 'button', text: 'Save & validate' });
+      const cancelBtn = el('button', { class: 'cancel-btn', type: 'button', text: 'Cancel' });
+      const editorStatus = el('span', { class: 'editor-status', style: 'flex:1;font-size:12px;color:var(--muted)' });
+      const editorActions = el('div', { style: 'display:flex;gap:8px;margin-top:8px;align-items:center' }, [saveBtn, cancelBtn, editorStatus]);
+      const inlineEditor = el('div', { class: 'inline-editor', style: 'display:none;margin-top:12px' }, [textarea, editorActions]);
+
+      const messagesEl = article.querySelector('.messages');
+      if (messagesEl) messagesEl.after(inlineEditor);
+      else article.append(inlineEditor);
+
+      const editBtn = el('button', { class: 'edit-btn', type: 'button', style: 'font-size:12px;padding:4px 10px', text: 'Edit' });
+      const docHead = article.querySelector('.doc-head');
+      if (docHead) docHead.append(editBtn);
+
+      editBtn.addEventListener('click', async () => {
+        try {
+          const res = await fetch('/api/documents?path=' + encodeURIComponent(docRelPath));
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) { notify('Failed to load file: ' + (payload.error || 'unknown'), 'bad'); return; }
+          textarea.value = payload.content || '';
+          inlineEditor.style.display = 'block';
+          editBtn.style.display = 'none';
+          textarea.focus();
+        } catch (err) {
+          notify('Failed to load file: ' + err.message, 'bad');
+        }
+      });
+
+      cancelBtn.addEventListener('click', () => {
+        inlineEditor.style.display = 'none';
+        editBtn.style.display = '';
+        editorStatus.textContent = '';
+      });
+
+      saveBtn.addEventListener('click', async () => {
+        saveBtn.disabled = true;
+        editorStatus.textContent = 'Saving...';
+        try {
+          const res = await fetch('/api/documents', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: docRelPath, content: textarea.value, force: true }),
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) { editorStatus.textContent = 'Error: ' + (payload.error || 'save failed'); saveBtn.disabled = false; return; }
+          const errs = payload.validation && payload.validation.errors ? payload.validation.errors : [];
+          const warns = payload.validation && payload.validation.warnings ? payload.validation.warnings : [];
+          if (errs.length === 0) {
+            editorStatus.textContent = 'All errors fixed!';
+            if (messagesEl) messagesEl.textContent = '';
+            const successMsg = el('div', { class: 'message' }, [el('strong', { text: 'All errors fixed!' })]);
+            if (messagesEl) messagesEl.append(successMsg);
+          } else {
+            editorStatus.textContent = errs.length + ' error(s) remain';
+            if (messagesEl) {
+              messagesEl.textContent = '';
+              const combined = [...errs, ...warns].slice(0, 4);
+              for (const msg of combined) {
+                messagesEl.append(el('div', { class: 'message' }, [
+                  el('strong', { text: (msg.field || 'document') + ': ' }),
+                  document.createTextNode(msg.message || ''),
+                ]));
+              }
+            }
+          }
+        } catch (err) {
+          editorStatus.textContent = 'Save failed: ' + err.message;
+        } finally {
+          saveBtn.disabled = false;
+        }
+      });
+    };
+
+    const attachAutoFix = (article, docRelPath) => {
+      const fixBtn = el('button', { class: 'autofix-btn', type: 'button', style: 'font-size:12px;padding:4px 10px', text: 'Auto-fix' });
+      const docHead = article.querySelector('.doc-head');
+      if (docHead) docHead.append(fixBtn);
+
+      fixBtn.addEventListener('click', async () => {
+        fixBtn.disabled = true;
+        fixBtn.textContent = 'Fixing...';
+        try {
+          const res = await fetch('/api/documents/fix', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: docRelPath }),
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) { notify('Auto-fix failed: ' + (payload.error || 'unknown'), 'bad'); fixBtn.disabled = false; fixBtn.textContent = 'Auto-fix'; return; }
+          const fixed = payload.fixed || 0;
+          const errs = payload.validation && payload.validation.errors ? payload.validation.errors : [];
+          const warns = payload.validation && payload.validation.warnings ? payload.validation.warnings : [];
+          if (fixed > 0) {
+            const changes = Array.isArray(payload.changes) ? payload.changes : [];
+            notify('Auto-fixed ' + fixed + ' field(s): ' + (changes.length ? changes.join(', ') : 'done'), 'good');
+          } else {
+            notify('Auto-fix: nothing automatable in ' + docRelPath, 'warn');
+          }
+          const messagesEl = article.querySelector('.messages');
+          if (messagesEl) {
+            messagesEl.textContent = '';
+            if (errs.length === 0 && warns.length === 0) {
+              messagesEl.append(el('div', { class: 'message' }, [el('strong', { text: 'All errors fixed!' })]));
+            } else {
+              const combined = [...errs, ...warns].slice(0, 4);
+              for (const msg of combined) {
+                messagesEl.append(el('div', { class: 'message' }, [
+                  el('strong', { text: (msg.field || 'document') + ': ' }),
+                  document.createTextNode(msg.message || ''),
+                ]));
+              }
+            }
+          }
+        } catch (err) {
+          notify('Auto-fix error: ' + err.message, 'bad');
+        } finally {
+          fixBtn.disabled = false;
+          fixBtn.textContent = 'Auto-fix';
+        }
+      });
+    };
+
     const docsRoot = document.getElementById('invalid-docs');
     const renderInvalidDocs = () => {
       docsRoot.textContent = '';
       const selectedType = docTypeFilter.value;
       const selectedFolder = folderScopeFilter.value;
+      const query = String(docSearch ? docSearch.value || '' : '').trim().toLowerCase();
       const invalidDocs = (data.results || [])
         .filter((result) => !result.valid && !result.skipped)
         .filter((result) => selectedType === 'all' || (result.docType || 'unknown') === selectedType)
-        .filter((result) => selectedFolder === 'all' || folderOfPath(result.filepath) === selectedFolder);
+        .filter((result) => selectedFolder === 'all' || folderOfPath(result.filepath) === selectedFolder)
+        .filter((result) => {
+          if (!query) return true;
+          const fp = String(result.filepath || '').toLowerCase();
+          if (fp.includes(query)) return true;
+          const allMessages = [...(result.errors || []), ...(result.warnings || [])];
+          return allMessages.some((m) => String(m.message || '').toLowerCase().includes(query) || String(m.field || '').toLowerCase().includes(query));
+        });
       if (invalidDocs.length === 0) {
         docsRoot.append(el('p', { class: 'empty', text: 'No invalid documents for the selected filters.' }));
       } else {
         for (const doc of invalidDocs.slice(0, 20)) {
           const messages = [...(doc.errors || []), ...(doc.warnings || [])].slice(0, 4);
-          docsRoot.append(el('article', { class: 'doc' }, [
+          const docRelPathVal = relPath(doc.filepath);
+          const article = el('article', { class: 'doc' }, [
             el('div', { class: 'doc-head' }, [
-              el('h3', { class: 'path', text: relPath(doc.filepath) }),
+              el('h3', { class: 'path', text: docRelPathVal }),
               el('span', { class: 'pill bad', text: (doc.errors || []).length + ' errors' }),
             ]),
             el('div', { class: 'messages' }, messages.map((message) =>
@@ -929,12 +1071,16 @@ Add links here.</textarea>
                 document.createTextNode(message.message || ''),
               ]),
             )),
-          ]));
+          ]);
+          attachAutoFix(article, docRelPathVal);
+          attachInlineEditor(article, docRelPathVal);
+          docsRoot.append(article);
         }
       }
     };
     docTypeFilter.addEventListener('change', renderInvalidDocs);
     folderScopeFilter.addEventListener('change', renderInvalidDocs);
+    if (docSearch) docSearch.addEventListener('input', renderInvalidDocs);
     renderInvalidDocs();
 
     const builder = {

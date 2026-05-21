@@ -634,6 +634,61 @@ export function serveDashboard({ data, projectRoot: initialRoot, port = 0, open 
       return;
     }
 
+    if (req.method === 'GET' && url.pathname === '/api/documents') {
+      try {
+        const docPath = normalizeOptionalVaultRelativePath(url.searchParams.get('path') || '');
+        if (!docPath) { sendJson(res, 400, { error: 'path is required' }); return; }
+        const filepath = resolve(projectRoot, docPath);
+        assertInsideRoot(projectRoot, filepath);
+        const content = await readFile(filepath, 'utf-8');
+        sendJson(res, 200, { path: docPath, content });
+      } catch (error) {
+        const status = error.code === 'ENOENT' ? 404 : 400;
+        sendJson(res, status, { error: error.message });
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/documents/fix') {
+      try {
+        const payload = await readJson(req);
+        const docPath = normalizeOptionalVaultRelativePath(String(payload.path || ''));
+        if (!docPath) { sendJson(res, 400, { error: 'path is required' }); return; }
+        const filepath = resolve(projectRoot, docPath);
+        assertInsideRoot(projectRoot, filepath);
+        // Apply fix logic inline (mirrors cli/fix-documents.js)
+        const raw = await readFile(filepath, 'utf-8');
+        const { default: matter } = await import('gray-matter');
+        const parsed = matter(raw);
+        const { validateDocument } = await import('../cli/validate-documents.js');
+        const result = await validateDocument(filepath, { projectRoot });
+        if (result.valid) { sendJson(res, 200, { fixed: 0, message: 'Already valid', validation: result }); return; }
+        const fields = result.templateSchema?.fields || {};
+        let fixed = 0;
+        const changes = [];
+        for (const err of result.errors) {
+          const fieldName = err.field;
+          if (!fieldName || fieldName === 'document' || fieldName.startsWith('$')) continue;
+          const fieldDef = fields[fieldName] || {};
+          if (err.message && err.message.includes('required') && !(fieldName in parsed.data)) {
+            const val = fieldDef.enum ? fieldDef.enum[0] : (fieldDef.type === 'integer' || fieldDef.type === 'number' ? 0 : fieldDef.type === 'boolean' ? false : fieldDef.type === 'array' ? [] : '');
+            parsed.data[fieldName] = val;
+            changes.push(fieldName + ' = ' + JSON.stringify(val));
+            fixed++;
+          }
+        }
+        if (fixed > 0) {
+          const newContent = matter.stringify(parsed.content, parsed.data);
+          await writeFile(filepath, newContent, 'utf-8');
+        }
+        const newResult = await validateDocument(filepath, { projectRoot });
+        sendJson(res, 200, { fixed, changes, validation: newResult });
+      } catch (error) {
+        sendJson(res, 400, { error: error.message });
+      }
+      return;
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/documents') {
       try {
         const payload = await readJson(req);
