@@ -13,12 +13,13 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   resolveProjectRoot,
   loadVaultConfig,
+  clearVaultConfigCache,
   _resetVaultConfigCache,
 } from '../lib/vault-config.js';
 
@@ -171,5 +172,106 @@ describe('loadVaultConfig', () => {
     const cfg = loadVaultConfig(tmp);
     expect(Object.isFrozen(cfg)).toBe(true);
     expect(Object.isFrozen(cfg.excludePatterns)).toBe(true);
+  });
+});
+
+// ── A3 — mtime-based cache invalidation ─────────────────────────────────────
+
+describe('A3 — mtime-based cache invalidation', () => {
+  test('clearVaultConfigCache is exported as a function', () => {
+    expect(typeof clearVaultConfigCache).toBe('function');
+  });
+
+  test('same mtime → same frozen object reference (cache hit)', () => {
+    mkdirSync(join(tmp, '.claude'), { recursive: true });
+    writeFileSync(
+      join(tmp, '.claude', 'vault-keeper.json'),
+      JSON.stringify({ vaultRoot: 'v1' }),
+    );
+    const cfg1 = loadVaultConfig(tmp);
+    const cfg2 = loadVaultConfig(tmp);
+    expect(cfg1).toBe(cfg2);
+  });
+
+  test('file modified (new mtime) → next call returns updated config', () => {
+    mkdirSync(join(tmp, '.claude'), { recursive: true });
+    const cfgFile = join(tmp, '.claude', 'vault-keeper.json');
+
+    writeFileSync(cfgFile, JSON.stringify({ vaultRoot: 'v1' }));
+    const cfg1 = loadVaultConfig(tmp);
+    expect(cfg1.vaultRoot).toBe('v1');
+
+    // Write new content and force a future mtime so the cache detects the change
+    // even on fast filesystems where two writes in the same ms look identical.
+    writeFileSync(cfgFile, JSON.stringify({ vaultRoot: 'v2' }));
+    const futureTime = new Date(Date.now() + 2000);
+    utimesSync(cfgFile, futureTime, futureTime);
+
+    const cfg2 = loadVaultConfig(tmp);
+    expect(cfg2.vaultRoot).toBe('v2');
+    expect(cfg2).not.toBe(cfg1);
+  });
+
+  test('clearVaultConfigCache() with no arg clears all roots', () => {
+    mkdirSync(join(tmp, '.claude'), { recursive: true });
+    const cfgFile = join(tmp, '.claude', 'vault-keeper.json');
+    writeFileSync(cfgFile, JSON.stringify({ vaultRoot: 'v1' }));
+
+    const cfg1 = loadVaultConfig(tmp);
+    clearVaultConfigCache();
+
+    // After clear, overwrite file — no need to bump mtime because cache is gone
+    writeFileSync(cfgFile, JSON.stringify({ vaultRoot: 'v2' }));
+    const futureTime = new Date(Date.now() + 2000);
+    utimesSync(cfgFile, futureTime, futureTime);
+
+    const cfg2 = loadVaultConfig(tmp);
+    expect(cfg2.vaultRoot).toBe('v2');
+    expect(cfg2).not.toBe(cfg1);
+  });
+
+  test('clearVaultConfigCache(root) only invalidates that root', () => {
+    const tmpB = realpathSync(mkdtempSync(join(tmpdir(), 'vk-cfg-b-')));
+    try {
+      // Prime both roots
+      mkdirSync(join(tmp, '.claude'), { recursive: true });
+      mkdirSync(join(tmpB, '.claude'), { recursive: true });
+      writeFileSync(
+        join(tmp, '.claude', 'vault-keeper.json'),
+        JSON.stringify({ vaultRoot: 'a1' }),
+      );
+      writeFileSync(
+        join(tmpB, '.claude', 'vault-keeper.json'),
+        JSON.stringify({ vaultRoot: 'b1' }),
+      );
+
+      const cfgA = loadVaultConfig(tmp);
+      const cfgB = loadVaultConfig(tmpB);
+
+      // Clear only root B
+      clearVaultConfigCache(tmpB);
+
+      // Root A still cached (same reference)
+      expect(loadVaultConfig(tmp)).toBe(cfgA);
+
+      // Root B evicted — after overwrite it re-reads
+      writeFileSync(
+        join(tmpB, '.claude', 'vault-keeper.json'),
+        JSON.stringify({ vaultRoot: 'b2' }),
+      );
+      const cfgB2 = loadVaultConfig(tmpB);
+      expect(cfgB2.vaultRoot).toBe('b2');
+      expect(cfgB2).not.toBe(cfgB);
+    } finally {
+      rmSync(tmpB, { recursive: true, force: true });
+    }
+  });
+
+  test('no config file → null mtime cached, repeat calls return same ref', () => {
+    // tmp has no .claude/vault-keeper.json → uses defaults
+    const cfg1 = loadVaultConfig(tmp);
+    const cfg2 = loadVaultConfig(tmp);
+    expect(cfg1).toBe(cfg2);
+    expect(cfg1.vaultRoot).toBe('.');
   });
 });
