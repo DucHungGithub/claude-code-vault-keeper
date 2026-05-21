@@ -43,6 +43,11 @@ export class VaultIndex {
     this._docs = new Map();
     /** @type {Map<string, Array<{source: string, line: number}>>} absPath(target) → incoming refs */
     this._incoming = new Map();
+    // P4: O(1) id→absPath lookup. Built in _buildIndex, kept in sync by refreshFile.
+    // Covers the primary case (entry.id extracted from filename). resolveId() falls
+    // back to a filename-pattern linear scan only for partial/heuristic queries.
+    /** @type {Map<string, string>} normalizedId → absPath */
+    this._idMap = new Map();
     this._loaded = false;
     this._loading = null;
   }
@@ -60,12 +65,17 @@ export class VaultIndex {
   /** Refresh a single file's entry after didSave. */
   async refreshFile(absPath) {
     if (!absPath.startsWith(this._vaultRoot) || !absPath.endsWith(".md")) return;
+    // P4: evict old id from _idMap before overwriting _docs entry
+    const oldEntry = this._docs.get(absPath);
+    if (oldEntry?.id) this._idMap.delete(oldEntry.id.toLowerCase());
     // Remove old outgoing edges from this file
     this._removeOutgoingEdges(absPath);
     // Re-parse and re-index
     const entry = await this._parseFile(absPath);
     if (entry) {
       this._docs.set(absPath, entry);
+      // P4: register new id
+      if (entry.id) this._idMap.set(entry.id.toLowerCase(), absPath);
       this._indexOutgoingLinks(absPath, entry);
     } else {
       this._docs.delete(absPath);
@@ -106,12 +116,19 @@ export class VaultIndex {
   /**
    * Resolve an id like "t-044" or "prd-001" to an absolute path.
    * Returns null if not found.
+   *
+   * P4: O(1) primary lookup via _idMap covers the standard `<prefix>-<digits>`
+   * case. Falls back to a linear filename-pattern scan only for heuristic
+   * queries (e.g. bare prefix without digits) that _idMap cannot pre-index.
    */
   resolveId(id) {
     if (!id) return null;
     const needle = id.toLowerCase().trim();
-    for (const [absPath, entry] of this._docs) {
-      if (entry.id && entry.id.toLowerCase() === needle) return absPath;
+    // O(1) fast path — covers virtually all real-world calls
+    const fast = this._idMap.get(needle);
+    if (fast !== undefined) return fast;
+    // Linear fallback for filename-pattern heuristics not covered by _idMap
+    for (const [absPath] of this._docs) {
       const fname = basename(absPath).toLowerCase();
       if (fname.startsWith(`${needle}-`) || fname.startsWith(`${needle}.`)) return absPath;
       if (fname.includes(`-${needle}-`) || fname.includes(`-${needle}.`)) return absPath;
@@ -158,6 +175,8 @@ export class VaultIndex {
       for (let j = 0; j < batch.length; j++) {
         if (entries[j]) {
           this._docs.set(batch[j], entries[j]);
+          // P4: populate id→absPath map for O(1) resolveId
+          if (entries[j].id) this._idMap.set(entries[j].id.toLowerCase(), batch[j]);
         }
       }
     }
