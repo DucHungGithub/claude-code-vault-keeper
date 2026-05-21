@@ -32,6 +32,39 @@ import { PRESETS } from '../cli/init-presets.js';
 import { loadVaultConfig } from '../lib/vault-config.js';
 
 /**
+ * Generate a read-only HTML report — same as renderDashboardHtml but without
+ * any mutation buttons (workspace init, template save, document save, etc.).
+ *
+ * @param {object} data
+ * @returns {string}
+ */
+export function generateShareHtml(data) {
+  const full = generateReport(data);
+  // Remove mutation buttons by stripping their IDs from the HTML
+  // We replace id="X" with id="X-readonly" so the elements still exist
+  // but their event listeners won't bind (JS looks for specific IDs).
+  const MUTATION_IDS = [
+    'workspace-init',
+    'workspace-create-folder',
+    'workspace-scan-folder-btn',
+    'workspace-scan-all',
+    'install-ai-kit',
+    'tpl-save',
+    'doc-save',
+  ];
+  let html = full;
+  for (const id of MUTATION_IDS) {
+    html = html.split('id="' + id + '"').join('id="' + id + '-readonly"');
+  }
+  // Mark the page as read-only by adding a banner
+  html = html.replace(
+    '<h1>Vault Keeper</h1>',
+    '<h1>Vault Keeper</h1><p style="background:#fff4dc;border:1px solid #f59e0b;border-radius:6px;color:#a86605;font-size:13px;padding:6px 12px;margin-top:8px">Read-only shared report</p>',
+  );
+  return html;
+}
+
+/**
  * Build a DashboardData object from validation results.
  *
  * @param {object[]} results
@@ -487,6 +520,119 @@ export function serveDashboard({ data, projectRoot: initialRoot, port = 0, open 
       return;
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/demo/init') {
+      try {
+        const { mkdtempSync: mkTemp } = await import('node:fs');
+        const { tmpdir } = await import('node:os');
+        const { join: pjoin } = await import('node:path');
+        const demoRoot = mkTemp(pjoin(tmpdir(), 'vk-demo-vault-'));
+
+        const files = [
+          {
+            path: pjoin(demoRoot, '.claude', 'vault-keeper.json'),
+            content: JSON.stringify({ vaultRoot: '.', vaultFolders: ['docs'] }, null, 2) + '\n',
+          },
+          {
+            path: pjoin(demoRoot, 'templates', 'note-template.md'),
+            content: [
+              '---',
+              'template_path: templates/note-template.md',
+              'document_type: note',
+              'fields:',
+              '  template:',
+              '    required: true',
+              '  title:',
+              '    type: string',
+              '    required: true',
+              '  status:',
+              '    type: string',
+              '    required: true',
+              '    enum: [draft, review, published]',
+              '---',
+              '',
+              '# Note template',
+              '',
+              '## Overview',
+              '',
+              '```yaml section-rules',
+              'required: true',
+              '```',
+              '',
+              'Write your note here.',
+              '',
+            ].join('\n'),
+          },
+          {
+            path: pjoin(demoRoot, 'docs', 'hello-world.md'),
+            content: [
+              '---',
+              'template: templates/note-template.md',
+              'document_type: note',
+              'title: Hello World',
+              'status: published',
+              '---',
+              '',
+              '# Hello World',
+              '',
+              '## Overview',
+              '',
+              'This document is valid.',
+              '',
+            ].join('\n'),
+          },
+          {
+            path: pjoin(demoRoot, 'docs', 'missing-status.md'),
+            content: [
+              '---',
+              'template: templates/note-template.md',
+              'document_type: note',
+              'title: Missing Status',
+              '---',
+              '',
+              '# Missing Status',
+              '',
+              '## Overview',
+              '',
+              'This document is missing the required status field.',
+              '',
+            ].join('\n'),
+          },
+          {
+            path: pjoin(demoRoot, 'docs', 'wrong-enum.md'),
+            content: [
+              '---',
+              'template: templates/note-template.md',
+              'document_type: note',
+              'title: Wrong Status Value',
+              'status: urgent',
+              '---',
+              '',
+              '# Wrong Status Value',
+              '',
+              '## Overview',
+              '',
+              'This document has an invalid status value.',
+              '',
+            ].join('\n'),
+          },
+        ];
+
+        for (const file of files) {
+          await mkdir(dirname(file.path), { recursive: true });
+          await writeFile(file.path, file.content, 'utf-8');
+        }
+
+        projectRoot = demoRoot;
+        process.env.CLAUDE_PROJECT_DIR = demoRoot;
+        currentData = await scanVault(demoRoot);
+
+        sendJson(res, 201, { root: demoRoot, filesCreated: files.length, data: currentData });
+      } catch (error) {
+        sendJson(res, 400, { error: error.message });
+      }
+      return;
+    }
+
     if (req.method === 'GET' && url.pathname === '/') {
       send(res, 200, renderDashboardHtml(currentData), 'text/html; charset=utf-8');
       return;
@@ -548,6 +694,44 @@ export function serveDashboard({ data, projectRoot: initialRoot, port = 0, open 
       } catch (error) {
         sendJson(res, 400, { error: error.message });
       }
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/badge.svg') {
+      const summary = currentData.summary || {};
+      const validated = Math.max(0, (summary.total || 0) - (summary.skipped || 0));
+      const rate = validated > 0 ? (summary.valid || 0) / validated : 1;
+      const pct = (rate * 100).toFixed(1);
+      const color = rate >= 0.95 ? '22c55e' : rate >= 0.8 ? 'f59e0b' : 'ef4444';
+      const label = 'vault';
+      const labelW = 42;
+      const valueW = 52;
+      const totalW = labelW + valueW;
+      const svg = [
+        '<svg xmlns="http://www.w3.org/2000/svg" width="' + totalW + '" height="20">',
+        '  <linearGradient id="s" x2="0" y2="100%">',
+        '    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>',
+        '    <stop offset="1" stop-opacity=".1"/>',
+        '  </linearGradient>',
+        '  <rect rx="3" width="' + totalW + '" height="20" fill="#555"/>',
+        '  <rect rx="3" x="' + labelW + '" width="' + valueW + '" height="20" fill="#' + color + '"/>',
+        '  <rect x="' + labelW + '" width="4" height="20" fill="#' + color + '"/>',
+        '  <rect rx="3" width="' + totalW + '" height="20" fill="url(#s)"/>',
+        '  <g fill="#fff" text-anchor="middle" font-family="DejaVu Sans,Verdana,Geneva,sans-serif" font-size="11">',
+        '    <text x="' + Math.round(labelW / 2) + '" y="15" fill="#010101" fill-opacity=".3">' + label + '</text>',
+        '    <text x="' + Math.round(labelW / 2) + '" y="14">' + label + '</text>',
+        '    <text x="' + (labelW + Math.round(valueW / 2)) + '" y="15" fill="#010101" fill-opacity=".3">' + pct + '%</text>',
+        '    <text x="' + (labelW + Math.round(valueW / 2)) + '" y="14">' + pct + '%</text>',
+        '  </g>',
+        '</svg>',
+      ].join('\n');
+      send(res, 200, svg, 'image/svg+xml; charset=utf-8');
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/share') {
+      const shareHtml = generateShareHtml(currentData);
+      send(res, 200, shareHtml, 'text/html; charset=utf-8');
       return;
     }
 

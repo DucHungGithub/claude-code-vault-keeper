@@ -242,6 +242,9 @@ export function generateReport(data) {
     .messages { margin-top: 10px; display: grid; gap: 6px; }
     .message { color: var(--muted); font-size: 13px; }
     .message strong { color: var(--ink); }
+    .error-explain-btn { background: transparent; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); cursor: pointer; font-size: 11px; padding: 1px 5px; margin-left: 6px; }
+    .error-explain-btn:hover { background: var(--bg); color: var(--ink); }
+    .error-explain-panel { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font-size: 13px; margin-top: 6px; padding: 8px 12px; }
     .empty { color: var(--muted); font-size: 14px; padding: 4px 0; }
     .builder-grid {
       display: grid;
@@ -425,6 +428,7 @@ export function generateReport(data) {
         <span>valid documents</span>
         <div id="motivational-msg" style="font-size:13px;margin-top:6px;color:var(--muted)"></div>
         <button type="button" id="header-change-vault" style="display:block;margin-top:8px;font-size:12px;padding:5px 10px;">📂 Change vault</button>
+        <button type="button" id="copy-badge-btn" style="display:block;margin-top:4px;font-size:12px;padding:5px 10px;" title="Copy badge markdown for README">🏅 Copy badge</button>
       </div>
     </div>
     <nav class="wrap tabs" aria-label="Dashboard sections">
@@ -650,6 +654,19 @@ Add links here.</textarea>
       </section>
     </section>
   </main>
+  <div id="tour-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:300;align-items:flex-start;justify-content:center;padding-top:80px">
+    <div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 20px 48px rgba(0,0,0,.25);width:min(440px,calc(100vw - 32px));padding:24px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <span id="tour-step-counter" style="font-size:12px;color:var(--muted);font-weight:600"></span>
+        <button type="button" id="tour-skip-btn" style="background:transparent;border:0;color:var(--muted);cursor:pointer;font-size:13px;padding:4px 8px">Skip tour</button>
+      </div>
+      <h3 id="tour-title" style="font-size:18px;margin:0 0 10px"></h3>
+      <p id="tour-text" style="color:var(--muted);font-size:14px;margin:0 0 20px;line-height:1.6"></p>
+      <div style="display:flex;justify-content:flex-end">
+        <button type="button" class="primary" id="tour-next-btn">Next &#x2192;</button>
+      </div>
+    </div>
+  </div>
   <script id="vault-data" type="application/json">${safeData}</script>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <div id="confetti-container" style="position:fixed;top:0;left:0;width:100%;height:0;pointer-events:none;z-index:999;overflow:visible"></div>
@@ -1747,6 +1764,15 @@ Add links here.</textarea>
       localStorage.setItem('theme', next);
       applyTheme(next);
     });
+    document.getElementById('copy-badge-btn').addEventListener('click', async () => {
+      const badge = '![Vault Health](http://localhost/api/badge.svg)';
+      try {
+        await navigator.clipboard.writeText(badge);
+        notify('Badge markdown copied! Paste into your README.', 'good');
+      } catch {
+        notify('Copy failed — badge URL: /api/badge.svg', 'warn');
+      }
+    });
 
     // ── Motivational message ──────────────────────────────────────────────────────
     const motivationalMsg = document.getElementById('motivational-msg');
@@ -1811,6 +1837,53 @@ Add links here.</textarea>
     resetFields(templatePresets.decision.fields);
     renderTemplate();
     renderDocument();
+
+    // ── Guided tour ────────────────────────────────────────────────────────────
+    const TOUR_STEPS = [
+      { title: 'Welcome to Vault Keeper!', text: 'Vault Keeper validates your Markdown knowledge base against templates you control. Take a quick tour.' },
+      { title: 'Start Tab', text: 'The Start tab is your home base. Use Workspace Actions to create folders, initialize a docs workspace, or scan a folder.', tab: 'start-panel' },
+      { title: 'Health Tab', text: 'The Health tab shows validation results. See invalid documents, filter by folder or type, edit inline, or auto-fix with one click.', tab: 'health-panel' },
+      { title: 'Create Tab', text: 'The Create tab has a Template Builder and Document Creator. Build templates with typed fields, then generate documents from them.', tab: 'templates-panel' },
+      { title: 'All set!', text: 'Press ? any time to see keyboard shortcuts. The moon button toggles dark mode. Click Change vault to open any folder on your machine.' },
+    ];
+    let tourStep = 0;
+    const tourOverlay = document.getElementById('tour-overlay');
+    const tourTitle = document.getElementById('tour-title');
+    const tourText = document.getElementById('tour-text');
+    const tourCounter = document.getElementById('tour-step-counter');
+    const tourNext = document.getElementById('tour-next-btn');
+    const tourSkip = document.getElementById('tour-skip-btn');
+
+    const showTourStep = (i) => {
+      const step = TOUR_STEPS[i];
+      tourCounter.textContent = 'Step ' + (i + 1) + ' / ' + TOUR_STEPS.length;
+      tourTitle.textContent = step.title;
+      tourText.textContent = step.text;
+      tourNext.textContent = i < TOUR_STEPS.length - 1 ? 'Next >' : 'Done!';
+      if (step.tab) {
+        document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
+        const tabBtn = document.querySelector('[data-tab="' + step.tab + '"]');
+        const tabPanel = document.getElementById(step.tab);
+        if (tabBtn) tabBtn.classList.add('active');
+        if (tabPanel) tabPanel.classList.add('active');
+      }
+    };
+    const finishTour = () => {
+      tourOverlay.style.display = 'none';
+      try { localStorage.setItem('vk-tour-done', '1'); } catch {}
+    };
+    tourNext.addEventListener('click', () => {
+      if (tourStep < TOUR_STEPS.length - 1) { tourStep++; showTourStep(tourStep); }
+      else finishTour();
+    });
+    tourSkip.addEventListener('click', finishTour);
+    try {
+      if (!localStorage.getItem('vk-tour-done')) {
+        showTourStep(0);
+        tourOverlay.style.display = 'flex';
+      }
+    } catch {}
 
     // ── Real-time updates via SSE ───────────────────────────────────────────────
     if (typeof EventSource !== 'undefined') {
