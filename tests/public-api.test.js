@@ -123,6 +123,11 @@ describe("public API — exports map", () => {
     "./utils": ["deepFreeze"],
     "./orchestrator": ["validateDocument", "findDocuments", "findAllFiles"],
     "./lsp-validator": ["validateBuffer"],
+    "./tui/dashboard": ["renderDashboard", "buildDashboardData"],
+    "./tui/wizard": ["runWizardWithAnswers", "WIZARD_STEPS"],
+    "./tui/ansi": ["fg", "style", "bar", "box", "stripAnsi"],
+    "./ui/dashboard": ["renderDashboardHtml", "buildDashboardData", "generateReport"],
+    "./ui/report-template": ["generateReport"],
   };
 
   test("every advertised subpath is declared in package.json", () => {
@@ -148,6 +153,8 @@ describe("public API — exports map", () => {
   test("deep-path back-compat — lib/cli/server wildcards still resolve", () => {
     expect(pkg.exports["./lib/*"]).toBe("./lib/*");
     expect(pkg.exports["./cli/*"]).toBe("./cli/*");
+    expect(pkg.exports["./tui/*"]).toBe("./tui/*");
+    expect(pkg.exports["./ui/*"]).toBe("./ui/*");
     expect(pkg.exports["./server/*"]).toBe("./server/*");
   });
 

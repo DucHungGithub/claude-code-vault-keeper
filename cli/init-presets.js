@@ -511,6 +511,341 @@ Pairs well with *The Power of Habit* by Charles Duhigg for the neuroscience angl
       },
     ],
   },
+
+  // ── AI workspace ──────────────────────────────────────────────────────────
+  'ai-workspace': {
+    name: 'AI Workspace',
+    description: 'Project context, tool registry, and AI instruction context',
+    files: [
+      {
+        path: '.claude/vault-keeper.json',
+        content: JSON.stringify(
+          { vaultRoot: '.', vaultFolders: ['contexts', 'tools', 'ai-context'] },
+          null,
+          2,
+        ) + '\n',
+      },
+      {
+        path: 'templates/context-template.md',
+        content: `---
+template_path: templates/context-template.md
+document_type: context
+tier: AI_CONTEXT
+sections:
+  - Purpose
+  - Facts
+  - Constraints
+  - References
+fields:
+  template:
+    required: true
+  document_type:
+    required: true
+  title:
+    type: string
+    required: true
+  scope:
+    type: string
+    required: true
+    enum:
+      - project
+      - domain
+      - session
+      - feature
+  status:
+    type: string
+    required: true
+    enum:
+      - active
+      - stale
+      - archived
+  owner:
+    type: string
+    required: true
+  updated_at:
+    type: date
+    required: true
+  tags:
+    type: array
+    uniqueItems: true
+  $path:
+    pattern: '^contexts/[a-z0-9-]+\\.md$'
+---
+
+# Context template
+
+## Purpose
+
+\`\`\`yaml section-rules
+required: true
+\`\`\`
+
+What this context helps the AI understand.
+
+## Facts
+
+\`\`\`yaml section-rules
+required: true
+\`\`\`
+
+Stable facts the assistant should preserve.
+
+## Constraints
+
+\`\`\`yaml section-rules
+required: true
+\`\`\`
+
+Boundaries, assumptions, and rules.
+
+## References
+`,
+      },
+      {
+        path: 'templates/tool-template.md',
+        content: `---
+template_path: templates/tool-template.md
+document_type: tool
+tier: AI_CONTEXT
+sections:
+  - Capability
+  - Inputs
+  - Outputs
+  - Safety Notes
+fields:
+  template:
+    required: true
+  document_type:
+    required: true
+  title:
+    type: string
+    required: true
+  tool_type:
+    type: string
+    required: true
+    enum:
+      - cli
+      - api
+      - mcp
+      - skill
+      - script
+      - ui
+  command:
+    type: string
+  status:
+    type: string
+    required: true
+    enum:
+      - available
+      - experimental
+      - deprecated
+  owner:
+    type: string
+    required: true
+  $path:
+    pattern: '^tools/[a-z0-9-]+\\.md$'
+---
+
+# Tool template
+
+## Capability
+
+\`\`\`yaml section-rules
+required: true
+\`\`\`
+
+What the tool can do.
+
+## Inputs
+
+Expected arguments, files, env vars, or UI state.
+
+## Outputs
+
+Files, responses, side effects, or reports produced.
+
+## Safety Notes
+
+\`\`\`yaml section-rules
+required: true
+\`\`\`
+
+Risks, permissions, and when not to use it.
+`,
+      },
+      {
+        path: 'templates/ai-context-template.md',
+        content: `---
+template_path: templates/ai-context-template.md
+document_type: ai-context
+tier: AI_CONTEXT
+sections:
+  - Operating Instructions
+  - Relevant Context
+  - Do Not
+fields:
+  template:
+    required: true
+  document_type:
+    required: true
+  title:
+    type: string
+    required: true
+  audience:
+    type: string
+    required: true
+    enum:
+      - claude
+      - chatgpt
+      - cursor
+      - codex
+      - all
+  context_type:
+    type: string
+    required: true
+    enum:
+      - system
+      - project
+      - task
+      - memory
+  priority:
+    type: integer
+    min: 1
+    max: 5
+  status:
+    type: string
+    required: true
+    enum:
+      - active
+      - stale
+      - archived
+  $path:
+    pattern: '^ai-context/[a-z0-9-]+\\.md$'
+---
+
+# AI context template
+
+## Operating Instructions
+
+\`\`\`yaml section-rules
+required: true
+\`\`\`
+
+Instructions the AI should follow.
+
+## Relevant Context
+
+\`\`\`yaml section-rules
+required: true
+\`\`\`
+
+Project facts, glossary, and assumptions.
+
+## Do Not
+
+\`\`\`yaml section-rules
+required: true
+\`\`\`
+
+Behaviors, tools, or changes the AI should avoid.
+`,
+      },
+      {
+        path: 'contexts/project-overview.md',
+        content: `---
+template: templates/context-template.md
+document_type: context
+title: Project overview
+scope: project
+status: active
+owner: '@team'
+updated_at: 2026-05-21
+tags:
+  - onboarding
+  - ai
+---
+
+# Project overview
+
+## Purpose
+
+Give AI assistants a stable starting point before they edit or explain this project.
+
+## Facts
+
+- The vault stores Markdown documents and templates.
+- Templates define the rules; validators enforce them without domain knowledge.
+
+## Constraints
+
+- Keep project-specific assumptions in context docs, not in validator code.
+- Validate after generating or changing documents.
+
+## References
+`,
+      },
+      {
+        path: 'tools/vault-keeper-dashboard.md',
+        content: `---
+template: templates/tool-template.md
+document_type: tool
+title: Vault Keeper dashboard
+tool_type: cli
+command: node cli/main.js dashboard --serve
+status: available
+owner: '@team'
+---
+
+# Vault Keeper dashboard
+
+## Capability
+
+Starts a local UI for choosing a vault, validating documents, and creating templates or documents.
+
+## Inputs
+
+- Optional root path
+- Optional validation path
+
+## Outputs
+
+- Local dashboard URL
+- Validation summary and create workflows
+
+## Safety Notes
+
+Server mode writes templates and documents only under the selected vault root.
+`,
+      },
+      {
+        path: 'ai-context/codex-project-rules.md',
+        content: `---
+template: templates/ai-context-template.md
+document_type: ai-context
+title: Codex project rules
+audience: codex
+context_type: project
+priority: 1
+status: active
+---
+
+# Codex project rules
+
+## Operating Instructions
+
+Read existing patterns before editing. Keep changes scoped and run tests after changes.
+
+## Relevant Context
+
+Vault Keeper validates Markdown against template-defined frontmatter and body section rules.
+
+## Do Not
+
+Do not hardcode context, tool, or AI-specific domain rules into the validator.
+`,
+      },
+    ],
+  },
 };
 
 // ── scaffoldPreset ─────────────────────────────────────────────────────────────

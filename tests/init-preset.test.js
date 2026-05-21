@@ -8,6 +8,7 @@
  *   zettelkasten — atomic notes with unique IDs + permanent/fleeting split
  *   adr        — Architecture Decision Records (software teams)
  *   book-notes — book annotation vault with author, rating, status
+ *   ai-workspace — context docs, tool registry, AI instructions
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
@@ -50,6 +51,7 @@ describe('init-presets module', () => {
     expect('zettelkasten').toBeOneOf(Object.keys(PRESETS));
     expect('adr').toBeOneOf(Object.keys(PRESETS));
     expect('book-notes').toBeOneOf(Object.keys(PRESETS));
+    expect('ai-workspace').toBeOneOf(Object.keys(PRESETS));
   });
 
   test('each preset has name, description, and files array', async () => {
@@ -121,6 +123,20 @@ describe('scaffoldPreset — file creation', () => {
     expect(content).toContain('author');
   });
 
+  test('ai-workspace preset creates context, tool, and AI context templates', async () => {
+    const { scaffoldPreset } = await importInit();
+    scaffoldPreset('ai-workspace', tmpDir);
+
+    const { readdirSync } = await import('node:fs');
+    const templates = readdirSync(join(tmpDir, 'templates'));
+    expect(templates).toContain('context-template.md');
+    expect(templates).toContain('tool-template.md');
+    expect(templates).toContain('ai-context-template.md');
+
+    const config = JSON.parse(readFileSync(join(tmpDir, '.claude', 'vault-keeper.json'), 'utf-8'));
+    expect(config.vaultFolders).toEqual(['contexts', 'tools', 'ai-context']);
+  });
+
   test('throws or returns error for unknown preset id', async () => {
     const { scaffoldPreset } = await importInit();
     expect(() => scaffoldPreset('nonexistent-preset', tmpDir)).toThrow();
@@ -130,7 +146,7 @@ describe('scaffoldPreset — file creation', () => {
 // ── Template quality: each preset's template passes lint-templates ────────────
 
 describe('scaffoldPreset — template validity (lint)', () => {
-  const presetIds = ['obsidian', 'zettelkasten', 'adr', 'book-notes'];
+  const presetIds = ['obsidian', 'zettelkasten', 'adr', 'book-notes', 'ai-workspace'];
 
   for (const presetId of presetIds) {
     test(`${presetId} template passes validateTemplateSchema`, async () => {
@@ -159,7 +175,7 @@ describe('scaffoldPreset — template validity (lint)', () => {
 // ── Sample document: each preset's sample doc passes validation ───────────────
 
 describe('scaffoldPreset — sample doc validates', () => {
-  const presetIds = ['obsidian', 'zettelkasten', 'adr', 'book-notes'];
+  const presetIds = ['obsidian', 'zettelkasten', 'adr', 'book-notes', 'ai-workspace'];
 
   for (const presetId of presetIds) {
     test(`${presetId} sample document is valid`, async () => {

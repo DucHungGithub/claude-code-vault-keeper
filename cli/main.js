@@ -11,6 +11,9 @@
  *   doctor                       — environment + vault + plugin health-check
  *   install-claude-code-plugin   — wraps `claude plugin marketplace add` + `claude plugin install`
  *   init [dir]                   — scaffold a minimal vault skeleton
+ *   setup                        — interactive vault setup wizard
+ *   tui                          — terminal vault health dashboard
+ *   dashboard                    — self-contained HTML vault health report
  *   help [cmd]                   — usage banner (top-level or per-command)
  *   --version / -v               — print the package version
  */
@@ -56,6 +59,9 @@ Commands:
   doctor                       Diagnose environment, config, plugin state
   install-claude-code-plugin   Install this plugin into Claude Code
   init [dir]                   Scaffold a minimal vault skeleton in <dir>
+  setup                        Interactive vault setup wizard
+  tui                          Show terminal vault health dashboard
+  dashboard                    Generate a self-contained HTML health report
   help [command]               Show top-level or per-command help
 
 Run \`vault-keeper help <command>\` for command-specific options.
@@ -152,6 +158,7 @@ Options:
                       zettelkasten  Atomic notes with permanent/fleeting split
                       adr           Architecture Decision Records for software teams
                       book-notes    Book annotation vault with author, rating, status
+                      ai-workspace  Context docs, tool registry, AI instructions
   --force           Overwrite existing files.
 
 Default scaffold (no --preset):
@@ -160,6 +167,37 @@ Default scaffold (no --preset):
   <dir>/notes/note-001-hello.md     — sample conforming document
 
 Refuses to overwrite an existing non-empty <dir> without --force.
+`,
+  setup: `vault-keeper setup [--force]
+
+Run the interactive vault setup wizard. Choose a preset, pick a directory,
+and scaffold the selected vault.
+
+Options:
+  --force           Skip the non-empty directory confirmation.
+`,
+  tui: `vault-keeper tui [options]
+
+Render a terminal vault health dashboard.
+
+Options:
+  --root <path>     Vault project root (else CLAUDE_PROJECT_DIR, else walk-up)
+  --watch           Re-render every 2 seconds until interrupted
+`,
+  dashboard: `vault-keeper dashboard [options]
+
+Generate a self-contained HTML vault health report.
+
+Options:
+  --root <path>     Vault project root. If omitted in an interactive terminal,
+                    dashboard asks whether to use, choose, or create a vault.
+  --path <path>     Validate a single file or sub-directory. If omitted in an
+                    interactive terminal, dashboard asks what to validate.
+  --out <path>      Write report to this file (default: vault-keeper-report.html)
+  --serve           Start a local dashboard server with template-save support
+  --port <number>   Port for --serve (default: random available port)
+  --json            Print dashboard data as JSON instead of writing HTML
+  --no-open         Do not open the generated report in a browser
 `,
 };
 
@@ -218,6 +256,18 @@ async function main(argv = process.argv.slice(2)) {
       return runInstallPlugin(rest);
     case 'init':
       return runInit(rest);
+    case 'setup': {
+      const wizardMod = await import('../tui/wizard.js');
+      return wizardMod.main(rest);
+    }
+    case 'tui': {
+      const dashboardMod = await import('../tui/dashboard.js');
+      return dashboardMod.main(rest);
+    }
+    case 'dashboard': {
+      const uiMod = await import('../ui/dashboard.js');
+      return uiMod.main(rest);
+    }
     default: {
       console.error(`Unknown command: ${subcommand}\n`);
       process.stderr.write(USAGE_MAIN);

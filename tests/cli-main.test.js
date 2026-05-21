@@ -59,6 +59,9 @@ describe('vault-keeper (multi-tool CLI)', () => {
     expect(stdout).toContain('doctor');
     expect(stdout).toContain('install-claude-code-plugin');
     expect(stdout).toContain('init');
+    expect(stdout).toContain('setup');
+    expect(stdout).toContain('tui');
+    expect(stdout).toContain('dashboard');
   });
 
   test('--version prints the package version', () => {
@@ -75,6 +78,27 @@ describe('vault-keeper (multi-tool CLI)', () => {
     expect(code).toBe(0);
     expect(stdout).toContain('vault-keeper doctor');
     expect(stdout).toContain('Health-check');
+  });
+
+  test('help tui prints dashboard usage', () => {
+    const { code, stdout } = runCli(['help', 'tui']);
+    expect(code).toBe(0);
+    expect(stdout).toContain('vault-keeper tui');
+    expect(stdout).toContain('--watch');
+  });
+
+  test('help setup prints wizard usage', () => {
+    const { code, stdout } = runCli(['help', 'setup']);
+    expect(code).toBe(0);
+    expect(stdout).toContain('vault-keeper setup');
+    expect(stdout).toContain('wizard');
+  });
+
+  test('help dashboard prints HTML report usage', () => {
+    const { code, stdout } = runCli(['help', 'dashboard']);
+    expect(code).toBe(0);
+    expect(stdout).toContain('vault-keeper dashboard');
+    expect(stdout).toContain('--out');
   });
 
   test('unknown subcommand exits 1 with usage', () => {
@@ -132,6 +156,47 @@ describe('vault-keeper (multi-tool CLI)', () => {
     expect(parsed.summary.total).toBe(1);
     expect(parsed.summary.valid).toBe(1);
     expect(parsed.summary.invalid).toBe(0);
+  });
+
+  test('tui renders dashboard for a scaffolded vault', () => {
+    const target = join(sandbox, 'tui-vault');
+    const initRes = runCli(['init', target]);
+    expect(initRes.code).toBe(0);
+
+    const tuiRes = runCli(['tui', '--root', target]);
+    expect(tuiRes.code).toBe(0);
+    expect(tuiRes.stdout).toContain('Vault Health');
+    expect(tuiRes.stdout).toContain('100.0%');
+  });
+
+  test('dashboard writes HTML report for a scaffolded vault', () => {
+    const target = join(sandbox, 'html-vault');
+    const outPath = join(sandbox, 'report.html');
+    const initRes = runCli(['init', target]);
+    expect(initRes.code).toBe(0);
+
+    const dashRes = runCli(['dashboard', '--root', target, '--out', outPath]);
+    expect(dashRes.code).toBe(0);
+    expect(dashRes.stdout).toContain(outPath);
+    expect(existsSync(outPath)).toBe(true);
+    const html = readFileSync(outPath, 'utf-8');
+    expect(html).toContain('Vault Health');
+    expect(html).toContain('100.0%');
+  });
+
+  test('init --preset ai-workspace scaffolds context, tool, and AI context docs', () => {
+    const target = join(sandbox, 'ai-workspace-vault');
+    const initRes = runCli(['init', target, '--preset', 'ai-workspace']);
+    expect(initRes.code).toBe(0);
+    expect(existsSync(join(target, 'templates', 'context-template.md'))).toBe(true);
+    expect(existsSync(join(target, 'templates', 'tool-template.md'))).toBe(true);
+    expect(existsSync(join(target, 'templates', 'ai-context-template.md'))).toBe(true);
+
+    const valRes = runCli(['validate', '--root', target, '--json']);
+    expect(valRes.code).toBe(0);
+    const parsed = JSON.parse(valRes.stdout);
+    expect(parsed.summary.total).toBe(3);
+    expect(parsed.summary.valid).toBe(3);
   });
 
   test('REGRESSION — invoking through a symlinked bin still runs main()', () => {
