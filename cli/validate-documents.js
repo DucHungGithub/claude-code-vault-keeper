@@ -28,6 +28,7 @@ import { join, dirname, relative } from 'path';
 import { pathToFileURL } from 'node:url';
 import { glob } from 'glob';
 import { resolveProjectRoot } from '../lib/vault-config.js';
+import { VaultIndex } from '../server/vault-index.js';
 import { parseDocument, resolveDocPath } from '../lib/doc-io.js';
 import { loadTemplateRules } from '../lib/template-rules.js';
 import { applyFieldSchema, applyBodySchema } from '../lib/schema-engine.js';
@@ -155,6 +156,8 @@ async function validateDocument(filepath, options = {}) {
   // this synthesized error the doc would either silently skip validation
   // or pass folder-readme-template's permissive `^.+/README\\.md$` regex.
   const normalizedPath = filepath.replace(/\\/g, '/');
+  // Look up in the projectRoot-scoped mismatch map (A2: was a single global Map)
+  const _bundleMismatchMap = _bundleMismatchMaps.get(options.projectRoot || process.cwd()) ?? new Map();
   const expectedBundleTemplates = _bundleMismatchMap.get(normalizedPath);
   if (expectedBundleTemplates && expectedBundleTemplates.length > 0) {
     const actual = fm.template || '<missing>';
@@ -198,11 +201,32 @@ async function validateDocument(filepath, options = {}) {
  * consults it and synthesizes a `bundle-readme-template-mismatch` error.
  * Generic / template-driven — no hardcoded vault paths.
  */
-const _bundleMismatchMap = new Map(); // normalizedFilepath -> string[] candidate templates
-let _bundleTemplatePatternsCache = null;
+// Keyed by projectRoot so validateDocument() called with different vault roots
+// in the same process (programmatic API) gets independent state. A single Map
+// was the original design but caused cross-contamination when consumers called
+// validateDocument() with vault-A then vault-B — vault-B incorrectly returned
+// vault-A's cached bundle patterns (A2 fix).
+const _bundleMismatchMaps = new Map();   // projectRoot → Map<normalizedPath, templates[]>
+const _bundleTemplatePatternsCache = new Map(); // projectRoot → patterns[]
 
-async function loadContentTemplateBundlePatterns(projectRoot = process.cwd()) {
-  if (_bundleTemplatePatternsCache) return _bundleTemplatePatternsCache;
+/**
+ * Clear bundle state caches for all roots (no arg) or a specific root.
+ * Use in tests or when switching the active vault root.
+ */
+export function clearBundleStateCaches(projectRoot) {
+  if (projectRoot) {
+    _bundleTemplatePatternsCache.delete(projectRoot);
+    _bundleMismatchMaps.delete(projectRoot);
+  } else {
+    _bundleTemplatePatternsCache.clear();
+    _bundleMismatchMaps.clear();
+  }
+}
+
+export async function loadContentTemplateBundlePatterns(projectRoot = process.cwd()) {
+  if (_bundleTemplatePatternsCache.has(projectRoot)) {
+    return _bundleTemplatePatternsCache.get(projectRoot);
+  }
   const patterns = [];
   const tmplFiles = glob.sync('templates/*-template.md', { cwd: projectRoot });
   for (const tf of tmplFiles) {
@@ -231,7 +255,7 @@ async function loadContentTemplateBundlePatterns(projectRoot = process.cwd()) {
       // Invalid regex — applyFieldSchema surfaces this elsewhere.
     }
   }
-  _bundleTemplatePatternsCache = patterns;
+  _bundleTemplatePatternsCache.set(projectRoot, patterns);
   return patterns;
 }
 
@@ -263,7 +287,9 @@ async function loadContentTemplateBundlePatterns(projectRoot = process.cwd()) {
  */
 async function findBundleReadmes(projectRoot = process.cwd()) {
   const readmes = [];
-  _bundleMismatchMap.clear();
+  // Use a projectRoot-scoped mismatch map (A2: was a single global Map)
+  const mismatchMap = new Map();
+  _bundleMismatchMaps.set(projectRoot, mismatchMap);
   const bundlePatterns = await loadContentTemplateBundlePatterns(projectRoot);
   // Exclude non-README excludes (codebase/, node_modules/, etc.) but allow
   // README.md itself through this scan.
@@ -291,7 +317,7 @@ async function findBundleReadmes(projectRoot = process.cwd()) {
           !tmpl || tmpl === 'templates/folder-readme-template.md';
 
         if (matchingContentTemplates.length > 0 && hasNoUsefulTemplate) {
-          _bundleMismatchMap.set(normalized, matchingContentTemplates);
+          mismatchMap.set(normalized, matchingContentTemplates);
           readmes.push(candidate);
           continue;
         }
@@ -390,6 +416,37 @@ async function findAllFiles(targetPath) {
   }
 
   return files;
+}
+
+/**
+ * Find orphan documents — vault docs with zero incoming backlinks.
+ *
+ * Uses the same VaultIndex that the LSP builds so the result is consistent
+ * with the in-editor backlink graph.
+ *
+ * Exclusions (never reported as orphans):
+ *  - Template files (templates/*.md) — they are authoring aids, not content.
+ *  - Docs with `no_orphan_check: true` in frontmatter — intentional standalones.
+ *
+ * @param {string} projectRoot  Absolute vault root.
+ * @returns {Promise<string[]>} Repo-relative paths of orphan docs.
+ */
+export async function findOrphans(projectRoot) {
+  const index = new VaultIndex(projectRoot);
+  await index.ensureLoaded();
+
+  const orphans = [];
+  for (const { absPath, fm } of index.allEntries()) {
+    const relPath = relative(projectRoot, absPath);
+    // Template files are authoring scaffolding, not vault content.
+    if (isTemplateFile(relPath)) continue;
+    // Per-doc opt-out: authors can mark intentionally standalone docs.
+    if (fm && fm.no_orphan_check) continue;
+    if (index.getBacklinks(absPath).length === 0) {
+      orphans.push(relPath);
+    }
+  }
+  return orphans;
 }
 
 /**
@@ -540,7 +597,8 @@ async function main(argv = process.argv.slice(2)) {
   const options = {
     path: args.includes('--path') ? args[args.indexOf('--path') + 1] : null,
     strict: args.includes('--strict'),
-    json: args.includes('--json')
+    json: args.includes('--json'),
+    orphans: args.includes('--orphans'),
   };
 
   // Resolve the vault project root (--root / CLAUDE_PROJECT_DIR / walk-up)
@@ -561,6 +619,29 @@ async function main(argv = process.argv.slice(2)) {
   // — checked BEFORE the walk-up in vault-config.js — makes every downstream
   // resolver agree with the root we just chdir'd into.
   process.env.CLAUDE_PROJECT_DIR = resolvedRoot;
+
+  // --orphans mode: list orphan docs then exit (no validation pass).
+  if (options.orphans) {
+    try {
+      const orphans = await findOrphans(resolvedRoot);
+      if (options.json) {
+        console.log(JSON.stringify({ orphans, total: orphans.length }, null, 2));
+      } else {
+        if (orphans.length === 0) {
+          console.log('No orphan documents found.');
+        } else {
+          console.log(`\nOrphan docs (no incoming links) — ${orphans.length} found:\n`);
+          for (const p of orphans.sort()) {
+            console.log(`  ${p}`);
+          }
+        }
+      }
+      process.exit(0);
+    } catch (err) {
+      console.error('Failed to scan orphans:', err.message);
+      process.exit(1);
+    }
+  }
 
   try {
     // Find documents

@@ -71,6 +71,7 @@ Options:
   --path <path>     Validate a single file or sub-directory
   --strict          Fail (exit 1) on warnings, not just errors
   --json            Emit a machine-readable report to stdout
+  --orphans         List docs with no incoming links instead of validating
 
 Exit codes:
   0  every doc is valid (zero warnings in --strict mode)
